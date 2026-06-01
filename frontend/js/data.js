@@ -3,19 +3,6 @@
 (function () {
   "use strict";
 
-  // ---- Verified sample puzzles for Page 1 --------------------------------
-  // grid string of 81 chars, 0 = empty. Verified via SudokuEngine tests.
-  const SAMPLES = [
-    { label: "Singles only", claimed: "Easy",
-      grid: "530070000600195000098000060800060003400803001700020006060000280000419005000080079" },
-    { label: "Pointing pairs", claimed: "Medium",
-      grid: "300000000970010000600583000200000900500621003008000005000435002000090056000000001" },
-    { label: "X-Wing required", claimed: "Hard",
-      grid: "100000569492056108056109240009640801064010000218035604040500016905061402621000005" },
-    { label: "Diabolical", claimed: "Medium",
-      grid: "800000000003600000070090200050007000000045700000100030001000068008500010090000400" },
-  ];
-
   const PUBLISHERS = ["The New York Times", "The Times", "The Guardian", "Sudoku.com"];
   const PUBLISHER_SHORT = {
     "The New York Times": "NYT",
@@ -25,6 +12,80 @@
   };
 
   const DIFFS = ["Easy", "Medium", "Hard"];
+
+  // ======================================================================
+  // SUBMIT PAGE — Publisher / claimed-difficulty system (Phase 1 redesign)
+  // ======================================================================
+  // Publisher dropdown for the Submit page. Selection is mandatory.
+  const SUBMIT_PUBLISHERS = ["NYT", "Sudoku.com", "The Guardian", "Times Sudoku", "Others"];
+  const SUBMIT_PUBLISHER_SHORT = {
+    "NYT": "NYT",
+    "Sudoku.com": "Sudoku.com",
+    "The Guardian": "Guardian",
+    "Times Sudoku": "Times",
+    "Others": "Other",
+  };
+
+  // Difficulty labels available per publisher. The Submit page difficulty
+  // dropdown is populated from this and stays disabled until a publisher is
+  // chosen; changing publisher resets the chosen difficulty.
+  const DIFF_BY_PUBLISHER = {
+    "NYT":          ["Easy", "Medium", "Hard"],
+    "Sudoku.com":   ["Easy", "Medium", "Hard", "Expert", "Master", "Extreme"],
+    "The Guardian": ["Easy", "Medium", "Hard", "Expert"],
+    "Times Sudoku": ["Easy", "Mild", "Moderate", "Difficult", "Fiendish", "Super Fiendish"],
+    "Others":       ["Easy", "Medium", "Hard"],
+  };
+
+  // Fixed conversion of each publisher's label to a numeric claimed score.
+  // These mappings are constant throughout the application.
+  const CLAIMED_SCORE = {
+    "NYT":          { Easy: 2, Medium: 4, Hard: 6 },
+    "Sudoku.com":   { Easy: 2, Medium: 4, Hard: 5, Expert: 7, Master: 8, Extreme: 9 },
+    "The Guardian": { Easy: 2, Medium: 4, Hard: 7, Expert: 9 },
+    "Times Sudoku": { Easy: 1, Mild: 2, Moderate: 4, Difficult: 6, Fiendish: 9, "Super Fiendish": 10 },
+    "Others":       { Easy: 2, Medium: 4, Hard: 6 },
+  };
+
+  function diffsFor(publisher) { return DIFF_BY_PUBLISHER[publisher] || []; }
+  function claimedScore(publisher, label) {
+    const m = CLAIMED_SCORE[publisher];
+    return m && m[label] != null ? m[label] : null;
+  }
+
+  // Mismatch = Measured Score − Claimed Score. Positive => publisher
+  // under-rated the puzzle (it is harder than claimed); negative => over-rated.
+  function verdict(mismatch) {
+    if (mismatch === 0)  return "Accurate";
+    if (mismatch === 1)  return "Slightly Underrated";
+    if (mismatch === 2)  return "Moderately Underrated";
+    if (mismatch >= 3)   return "Significantly Underrated";
+    if (mismatch === -1) return "Slightly Overrated";
+    if (mismatch === -2) return "Moderately Overrated";
+    return "Significantly Overrated"; // -3 or less
+  }
+
+  // Reference copy of the technique-tier scale used by the engine (display).
+  const TECHNIQUE_SCALE = [
+    { name: "Full House", score: 1 },
+    { name: "Naked Single", score: 1 },
+    { name: "Hidden Single", score: 2 },
+    { name: "Pointing Pair", score: 3 },
+    { name: "Box-Line Reduction", score: 3 },
+    { name: "Naked Pair / Triple / Quad", score: 4 },
+    { name: "Hidden Pair / Triple / Quad", score: 5 },
+    { name: "X-Wing", score: 6 },
+    { name: "Swordfish", score: 7 },
+    { name: "X-Colors", score: 7 },
+    { name: "Jellyfish", score: 8 },
+    { name: "XY-Wing", score: 9 },
+    { name: "W-Wing", score: 9 },
+    { name: "Skyscraper", score: 9 },
+    { name: "Empty Rectangle", score: 9 },
+    { name: "XYZ-Wing", score: 10 },
+    { name: "Unique Rectangle", score: 10 },
+  ];
+
   const TECH_BY_TIER = {
     Easy: ["Naked Single", "Hidden Single"],
     Medium: ["Pointing Pair/Triple", "Claiming Pair/Triple", "Naked Pair", "Hidden Pair"],
@@ -32,14 +93,34 @@
   };
   const SCORE_RANGE = { Easy: [110, 255], Medium: [260, 515], Hard: [525, 955] };
 
-  // Each publisher has a grading character: how its claims drift from measured truth.
-  // bias > 0 => tends to OVER-state difficulty (claims harder than it is).
+  // Per-publisher grading character on the 1–10 technique-tier scale.
+  // bias > 0 => publisher tends to UNDER-rate (claims easier than measured,
+  // so measured > claimed => positive mismatch). bias < 0 => OVER-rates.
   const PROFILE = {
-    "The New York Times": { bias: 0.05, noise: 0.22 }, // very accurate
-    "The Times":          { bias: -0.34, noise: 0.46 }, // under-rates
-    "The Guardian":       { bias: 0.42, noise: 0.55 },  // over-rates, inconsistent
-    "Sudoku.com":         { bias: 0.62, noise: 0.52 },  // inflates difficulty most
+    "NYT":          { bias: 0.1,  noise: 0.9 }, // accurate, tight
+    "Sudoku.com":   { bias: -1.6, noise: 1.2 }, // inflates claims (over-rates)
+    "The Guardian": { bias: 1.2,  noise: 1.7 }, // under-rates, inconsistent
+    "Times Sudoku": { bias: 1.7,  noise: 1.5 }, // under-rates the most
+    "Others":       { bias: -0.2, noise: 2.0 }, // mixed / noisy
   };
+
+  // Real, solvable puzzle grids assigned to seed records for the detail view.
+  const GRID_POOL = [
+    "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
+    "300000000970010000600583000200000900500621003008000005000435002000090056000000001",
+    "100000569492056108056109240009640801064010000218035604040500016905061402621000005",
+    "800000000003600000070090200050007000000045700000100030001000068008500010090000400",
+    "000000907000420180000705026100904000050000040000507009920108000034059000507000000",
+    "020810740700003100090002805009040087400208003160030200302700060005600008076051090",
+  ];
+
+  // Representative hardest technique for a measured score (1–10).
+  function techForScore(score, rnd) {
+    const matches = TECHNIQUE_SCALE.filter((t) => t.score === score);
+    if (!matches.length) return "Advanced Out-of-Scope Technique";
+    const i = rnd ? Math.floor(rnd() * matches.length) : 0;
+    return matches[i].name;
+  }
 
   // ---- Deterministic RNG --------------------------------------------------
   function mulberry32(a) {
@@ -54,42 +135,43 @@
   function generate(n, seed) {
     const rnd = mulberry32(seed || 20260531);
     const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const records = [];
     for (let k = 0; k < n; k++) {
-      const publisher = pick(PUBLISHERS);
+      const publisher = pick(SUBMIT_PUBLISHERS);
       const prof = PROFILE[publisher];
-      // True (measured) difficulty as a latent 0..2 index.
-      const trueIdx = Math.floor(rnd() * 3); // 0 Easy, 1 Med, 2 Hard
-      const measured = DIFFS[trueIdx];
-      // Claimed drifts from measured by bias + noise.
+      // Pick the publisher's claimed label, then derive measured score from it.
+      const labels = DIFF_BY_PUBLISHER[publisher];
+      const claimed = pick(labels);
+      const cScore = claimedScore(publisher, claimed);
       const drift = prof.bias + (rnd() - 0.5) * 2 * prof.noise;
-      let claimedIdx = trueIdx + Math.round(drift);
-      claimedIdx = Math.max(0, Math.min(2, claimedIdx));
-      const claimed = DIFFS[claimedIdx];
-
-      const [lo, hi] = SCORE_RANGE[measured];
-      const score = Math.round(lo + rnd() * (hi - lo));
-      const tech = pick(TECH_BY_TIER[measured]);
-      const clues = measured === "Easy" ? 30 + Math.floor(rnd() * 7)
-                  : measured === "Medium" ? 26 + Math.floor(rnd() * 6)
-                  : 22 + Math.floor(rnd() * 6);
+      const measuredScore = clamp(Math.round(cScore + drift), 1, 10);
+      const mismatch = measuredScore - cScore;
+      const tech = techForScore(measuredScore, rnd);
+      const clues = clamp(38 - measuredScore - Math.floor(rnd() * 3), 22, 36);
+      const d = new Date(2026, 0, 1 + Math.floor(rnd() * 150));
 
       records.push({
         id: "SDK-" + String(1042 + k).padStart(4, "0"),
         publisher,
-        publisherShort: PUBLISHER_SHORT[publisher],
+        publisherShort: SUBMIT_PUBLISHER_SHORT[publisher],
         claimed,
-        measured,
-        score,
+        claimedScore: cScore,
+        measuredScore,
+        mismatch,
+        verdict: verdict(mismatch),
         tech,
         clues,
-        date: new Date(2026, 0, 1 + Math.floor(rnd() * 150)).toISOString().slice(0, 10),
+        grid: GRID_POOL[k % GRID_POOL.length],
+        date: d.toISOString().slice(0, 10),
+        ts: d.toISOString(),
+        source: "seed",
       });
     }
     return records;
   }
 
-  const REPO = generate(40);
+  const REPO = generate(36);
 
   // ---- Analytics helpers --------------------------------------------------
   const DIFF_IDX = { Easy: 0, Medium: 1, Hard: 2 };
@@ -104,39 +186,43 @@
     return dx && dy ? num / Math.sqrt(dx * dy) : 0;
   }
 
+  // Analytics over the Technique-Tier model. mismatch = measured − claimed:
+  // positive => under-rated by publisher, negative => over-rated.
   function analytics(rows) {
-    const claimedIdx = rows.map((r) => DIFF_IDX[r.claimed]);
-    const measuredIdx = rows.map((r) => DIFF_IDX[r.measured]);
-    const r = pearson(claimedIdx, measuredIdx);
-    const matches = rows.filter((x) => x.claimed === x.measured).length;
-    const agreement = rows.length ? matches / rows.length : 0;
-    const over = rows.filter((x) => DIFF_IDX[x.claimed] > DIFF_IDX[x.measured]).length;
-    const under = rows.filter((x) => DIFF_IDX[x.claimed] < DIFF_IDX[x.measured]).length;
-    const meanScore = rows.length ? Math.round(rows.reduce((a, b) => a + b.score, 0) / rows.length) : 0;
+    const n = rows.length;
+    const r = pearson(rows.map((x) => x.claimedScore), rows.map((x) => x.measuredScore));
+    const accurate = rows.filter((x) => x.mismatch === 0).length;
+    const agreement = n ? accurate / n : 0;
+    const over = rows.filter((x) => x.mismatch < 0).length;
+    const under = rows.filter((x) => x.mismatch > 0).length;
+    const meanMeasured = n ? rows.reduce((a, b) => a + b.measuredScore, 0) / n : 0;
+    const meanAbsMismatch = n ? rows.reduce((a, b) => a + Math.abs(b.mismatch), 0) / n : 0;
 
-    // Per-publisher accuracy leaderboard.
     const byPub = {};
-    rows.forEach((x) => {
-      (byPub[x.publisher] = byPub[x.publisher] || []).push(x);
-    });
+    rows.forEach((x) => { (byPub[x.publisher] = byPub[x.publisher] || []).push(x); });
     const leaderboard = Object.entries(byPub).map(([pub, list]) => {
-      const m = list.filter((x) => x.claimed === x.measured).length;
-      const o = list.filter((x) => DIFF_IDX[x.claimed] > DIFF_IDX[x.measured]).length;
-      const u = list.filter((x) => DIFF_IDX[x.claimed] < DIFF_IDX[x.measured]).length;
+      const acc = list.filter((x) => x.mismatch === 0).length / list.length;
+      const o = list.filter((x) => x.mismatch < 0).length;
+      const u = list.filter((x) => x.mismatch > 0).length;
+      const meanMis = list.reduce((a, b) => a + b.mismatch, 0) / list.length;
       return {
         publisher: pub,
-        short: PUBLISHER_SHORT[pub],
+        short: SUBMIT_PUBLISHER_SHORT[pub] || pub,
         n: list.length,
-        accuracy: list.length ? m / list.length : 0,
+        accuracy: acc,
         over: o, under: u,
-        tendency: o > u ? "over-rates" : u > o ? "under-rates" : "balanced",
+        meanMismatch: meanMis,
+        tendency: meanMis > 0.4 ? "under-rates" : meanMis < -0.4 ? "over-rates" : "balanced",
       };
     }).sort((a, b) => b.accuracy - a.accuracy);
 
-    return { pearson: r, agreement, over, under, meanScore, leaderboard, n: rows.length };
+    return { pearson: r, agreement, accurate, over, under, meanMeasured, meanAbsMismatch, leaderboard, n };
   }
 
   window.SudokuData = {
-    SAMPLES, PUBLISHERS, PUBLISHER_SHORT, DIFFS, REPO, generate, analytics, pearson, DIFF_IDX,
+    PUBLISHERS, PUBLISHER_SHORT, DIFFS, REPO, generate, analytics, pearson, DIFF_IDX,
+    // Submit-page + Repository (Phase 1/2) system
+    SUBMIT_PUBLISHERS, SUBMIT_PUBLISHER_SHORT, DIFF_BY_PUBLISHER, CLAIMED_SCORE,
+    TECHNIQUE_SCALE, GRID_POOL, diffsFor, claimedScore, verdict, techForScore,
   };
 })();

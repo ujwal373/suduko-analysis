@@ -31,19 +31,21 @@
   }
 
   // ---- Technique catalogue ------------------------------------------------
-  // tier: 1 = Easy, 2 = Medium, 3 = Hard. cost feeds the composite score.
+  // tier: 1 = Easy, 2 = Medium, 3 = Hard (legacy band, used by repository).
+  // score: position on the Technique-Tier Classification scale (1–10). The
+  //        measured difficulty is the highest score encountered.
   const TECH = {
-    nakedSingle:  { key: "nakedSingle",  name: "Naked Single",      cost: 8,   tier: 1 },
-    hiddenSingle: { key: "hiddenSingle", name: "Hidden Single",     cost: 14,  tier: 1 },
-    pointing:     { key: "pointing",     name: "Pointing Pair/Triple", cost: 42, tier: 2 },
-    claiming:     { key: "claiming",     name: "Claiming Pair/Triple", cost: 48, tier: 2 },
-    nakedPair:    { key: "nakedPair",    name: "Naked Pair",        cost: 60,  tier: 2 },
-    hiddenPair:   { key: "hiddenPair",   name: "Hidden Pair",       cost: 72,  tier: 2 },
-    nakedTriple:  { key: "nakedTriple",  name: "Naked Triple",      cost: 92,  tier: 3 },
-    hiddenTriple: { key: "hiddenTriple", name: "Hidden Triple",     cost: 116, tier: 3 },
-    xWing:        { key: "xWing",        name: "X-Wing",            cost: 165, tier: 3 },
-    xyWing:       { key: "xyWing",       name: "XY-Wing",           cost: 190, tier: 3 },
-    backtrack:    { key: "backtrack",    name: "Trial & Error (backtracking)", cost: 340, tier: 3 },
+    nakedSingle:  { key: "nakedSingle",  name: "Naked Single",         cost: 8,   tier: 1, score: 1 },
+    hiddenSingle: { key: "hiddenSingle", name: "Hidden Single",        cost: 14,  tier: 1, score: 2 },
+    pointing:     { key: "pointing",     name: "Pointing Pair",        cost: 42,  tier: 2, score: 3 },
+    claiming:     { key: "claiming",     name: "Box-Line Reduction",   cost: 48,  tier: 2, score: 3 },
+    nakedPair:    { key: "nakedPair",    name: "Naked Pair",           cost: 60,  tier: 2, score: 4 },
+    hiddenPair:   { key: "hiddenPair",   name: "Hidden Pair",          cost: 72,  tier: 2, score: 5 },
+    nakedTriple:  { key: "nakedTriple",  name: "Naked Triple",         cost: 92,  tier: 3, score: 4 },
+    hiddenTriple: { key: "hiddenTriple", name: "Hidden Triple",        cost: 116, tier: 3, score: 5 },
+    xWing:        { key: "xWing",        name: "X-Wing",               cost: 165, tier: 3, score: 6 },
+    xyWing:       { key: "xyWing",       name: "XY-Wing",              cost: 190, tier: 3, score: 9 },
+    backtrack:    { key: "backtrack",    name: "Advanced Out-of-Scope Technique", cost: 340, tier: 3, score: 10 },
   };
 
   // ---- Parsing / validation ----------------------------------------------
@@ -379,23 +381,36 @@
     const solvedByLogic = isSolved(work);
     const counts = {};
     let total = 0, maxCost = 0, maxTier = 1, hardest = TECH.nakedSingle;
+    let maxScore = 0, hardestByScore = TECH.nakedSingle;
     for (const s of steps) {
       const m = TECH[s.tech];
       counts[s.tech] = (counts[s.tech] || 0) + 1;
       total += m.cost;
       if (m.cost > maxCost) { maxCost = m.cost; hardest = m; }
       if (m.tier > maxTier) maxTier = m.tier;
+      if (m.score > maxScore) { maxScore = m.score; hardestByScore = m; }
     }
 
-    let requiresGuessing = false;
+    // Out-of-scope: the puzzle could not be cracked with the catalogued
+    // techniques, so an advanced technique beyond the scale was required.
+    let requiresGuessing = false, outOfScope = false;
     if (!solvedByLogic) {
       requiresGuessing = true;
+      outOfScope = true;
       counts.backtrack = 1;
       total += TECH.backtrack.cost;
       maxCost = TECH.backtrack.cost;
       maxTier = 3;
       hardest = TECH.backtrack;
+      maxScore = TECH.backtrack.score; // 10
+      hardestByScore = TECH.backtrack;
     }
+
+    // Technique-Tier Classification: measured difficulty = highest score seen.
+    const measuredScore = maxScore || 1;
+    const hardestTech = outOfScope
+      ? { key: "outOfScope", name: "Advanced Out-of-Scope Technique", score: 10 }
+      : { key: hardestByScore.key, name: hardestByScore.name, score: hardestByScore.score };
 
     const composite = Math.round(maxCost * 2.4 + total * 0.32);
     const difficulty = maxTier === 1 ? "Easy" : maxTier === 2 ? "Medium" : "Hard";
@@ -403,7 +418,7 @@
     const order = ["nakedSingle", "hiddenSingle", "pointing", "claiming", "nakedPair", "hiddenPair", "nakedTriple", "hiddenTriple", "xWing", "xyWing", "backtrack"];
     const breakdown = order.filter((k) => counts[k]).map((k) => {
       const m = TECH[k];
-      return { key: k, name: m.name, tier: m.tier, count: counts[k], cost: m.cost, total: m.cost * counts[k] };
+      return { key: k, name: m.name, tier: m.tier, score: m.score, count: counts[k], cost: m.cost, total: m.cost * counts[k] };
     });
 
     const solution = solveFull(board);
@@ -413,7 +428,10 @@
       difficulty,
       composite,
       maxScore: 1000,
-      hardest: { key: hardest.key, name: hardest.name, tier: hardest.tier },
+      // Technique-Tier Classification (Phase 1 model)
+      measuredScore,
+      hardestTech,
+      outOfScope,
       breakdown,
       totalSteps: steps.length + (requiresGuessing ? 1 : 0),
       requiresGuessing,

@@ -1,28 +1,70 @@
-/* Page 1 — Puzzle submission + live analysis results. Exports SubmitPage. */
+/* Page 1 — Puzzle submission + live analysis results. Exports SubmitPage.
+   Difficulty is graded with the Technique-Tier Classification model:
+   measured score = the highest-tier technique the solver was forced to use. */
 function emptyBoard() { return new Array(81).fill(0); }
 
-function TierTag({ tier }) {
-  const map = { 1: ["Easy", "text-emerald-600 dark:text-emerald-400"], 2: ["Medium", "text-amber-600 dark:text-amber-400"], 3: ["Hard", "text-rose-600 dark:text-rose-400"] };
-  const [t, c] = map[tier] || map[2];
-  return <span className={`font-mono text-[10px] uppercase tracking-wide ${c}`}>T{tier}·{t}</span>;
+// Visual treatment for a mismatch value (measured − claimed).
+function verdictTone(mismatch) {
+  if (mismatch === 0) return { tone: "accurate", cls: "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 ring-emerald-600/20", glyph: <Icon.check />, dot: "#059669" };
+  if (mismatch > 0)   return { tone: "under",    cls: "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 ring-amber-600/20",       glyph: <Icon.warn width="13" height="13" />, dot: "#d97706" };
+  return                     { tone: "over",     cls: "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 ring-rose-600/20",          glyph: <Icon.warn width="13" height="13" />, dot: "#e11d48" };
 }
 
-function ClaimVerdict({ claimed, measured }) {
-  if (!claimed) return null;
-  const idx = window.SudokuData.DIFF_IDX;
-  const diff = idx[claimed] - idx[measured];
-  let label, cls, glyph;
-  if (diff === 0) { label = "Claim matches measurement"; cls = "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 ring-emerald-600/20"; glyph = <Icon.check />; }
-  else if (diff > 0) { label = `Over-rated by ${diff} band${diff > 1 ? "s" : ""}`; cls = "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 ring-rose-600/20"; glyph = <Icon.warn width="13" height="13" />; }
-  else { label = `Under-rated by ${-diff} band${-diff > 1 ? "s" : ""}`; cls = "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 ring-amber-600/20"; glyph = <Icon.warn width="13" height="13" />; }
+function ScoreTile({ kicker, score, caption, accent }) {
+  const ring = accent === "measured"
+    ? "border-accent-300 dark:border-accent-500/40"
+    : "border-slate-200 dark:border-slate-800";
   return (
-    <div className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${cls}`}>
-      {glyph}{label}
+    <div className={`rounded-lg border bg-white p-4 dark:bg-slate-950/20 ${ring}`}>
+      <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">{kicker}</div>
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className="font-mono text-3xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{score}</span>
+        <span className="font-mono text-sm text-slate-400">/ 10</span>
+      </div>
+      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{caption}</div>
     </div>
   );
 }
 
-function ResultsCard({ result, claimed, name }) {
+// One label / value line inside a labelled panel section.
+function DefRow({ label, children }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-1.5">
+      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="text-right text-sm font-medium text-slate-800 dark:text-slate-100">{children}</span>
+    </div>
+  );
+}
+
+function PanelSection({ kicker, children }) {
+  return (
+    <div>
+      <h4 className="mb-1 font-mono text-[10px] uppercase tracking-widest text-slate-400">{kicker}</h4>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">{children}</div>
+    </div>
+  );
+}
+
+// Builds the automatically-generated, plain-language explanation.
+function buildExplanation({ result, publisher, claimed, claimedScore, mismatch, verdict }) {
+  const tech = result.hardestTech.name;
+  const ms = result.measuredScore;
+  const techPhrase = result.outOfScope
+    ? `required an advanced technique beyond the standard scale, capping its measured difficulty score at ${ms}`
+    : `required ${/^[aeiou]/i.test(tech) ? "an" : "a"} ${tech} technique, giving it a measured difficulty score of ${ms}`;
+
+  const claimPhrase = `${publisher} classified the puzzle as ${claimed} (claimed score ${claimedScore})`;
+
+  let conclusion;
+  if (mismatch === 0) conclusion = "The two scores agree, so the publisher's rating is accurate.";
+  else conclusion = `The mismatch of ${mismatch > 0 ? "+" : ""}${mismatch} means the puzzle is ${verdict.toLowerCase()}.`;
+
+  return `The puzzle ${techPhrase}. ${claimPhrase}. ${conclusion}`;
+}
+
+function ResultsCard({ result, publisher, claimed }) {
+  const D = window.SudokuData;
+
   if (!result) {
     return (
       <Card className="flex h-full min-h-[440px] flex-col items-center justify-center p-10 text-center">
@@ -31,7 +73,7 @@ function ResultsCard({ result, claimed, name }) {
         </div>
         <h3 className="mt-4 text-sm font-semibold text-slate-700 dark:text-slate-200">No analysis yet</h3>
         <p className="mt-1.5 max-w-xs text-sm text-slate-500 dark:text-slate-400">
-          Fill the grid or load a sample, then run the solver. The engine applies human techniques in order and grades by the hardest one required.
+          Select a publisher and claimed difficulty, enter the puzzle, then run the solver. The engine applies human techniques in order and grades by the most advanced one required.
         </p>
       </Card>
     );
@@ -49,84 +91,111 @@ function ResultsCard({ result, claimed, name }) {
     );
   }
 
-  const m = DIFF_META[result.difficulty];
+  const claimedScore = D.claimedScore(publisher, claimed);
+  const measured = result.measuredScore;
+  const mismatch = claimedScore != null ? measured - claimedScore : null;
+  const verdict = mismatch != null ? D.verdict(mismatch) : null;
+  const vt = mismatch != null ? verdictTone(mismatch) : null;
+  const explanation = mismatch != null
+    ? buildExplanation({ result, publisher, claimed, claimedScore, mismatch, verdict })
+    : null;
+
   return (
     <Card className="h-full animate-fade">
       <CardHead
         title="Analysis results"
-        sub={name ? `Submitted by ${name}` : "Engine-measured difficulty"}
-        right={<ClaimVerdict claimed={claimed} measured={result.difficulty} />}
+        sub="Technique-Tier Classification"
+        right={verdict ? (
+          <div className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${vt.cls}`}>
+            {vt.glyph}{verdict}
+          </div>
+        ) : null}
       />
-      <div className="grid gap-5 p-5 sm:grid-cols-2">
-        {/* left: gauge + verdict */}
-        <div className="flex flex-col">
-          <DifficultyGauge value={result.composite} max={result.maxScore} difficulty={result.difficulty} />
-          <div className="mt-2 flex items-center justify-center gap-3">
-            <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">Measured</span>
-            <DiffBadge value={result.difficulty} size="md" />
-          </div>
-        </div>
-        {/* right: key stats */}
-        <div className="grid grid-cols-2 gap-3 self-start">
-          <Stat label="Composite score" value={result.composite} mono />
-          <Stat label="Clues given" value={result.clues} mono />
-          <Stat label="Solve steps" value={result.totalSteps} mono />
-          <Stat label="Logical solve" value={result.solvedByLogic ? "Yes" : "No"} accent={result.solvedByLogic ? "emerald" : "rose"} />
-          <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-950/30">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Hardest technique required</div>
-            <div className="mt-1 flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{result.hardest.name}</span>
-              <TierTag tier={result.hardest.tier} />
+
+      <div className="space-y-5 p-5">
+        {/* Score comparison hero */}
+        <div className="grid grid-cols-3 gap-3">
+          <ScoreTile kicker="Claimed" score={claimedScore != null ? claimedScore : "—"} caption={claimed ? `${publisher} · ${claimed}` : "No claim set"} />
+          <ScoreTile kicker="Measured" score={measured} caption={result.hardestTech.name} accent="measured" />
+          <div className={`flex flex-col justify-center rounded-lg border p-4 ${mismatch != null ? "border-transparent " + vt.cls : "border-slate-200 dark:border-slate-800"}`}>
+            <div className="font-mono text-[10px] uppercase tracking-wider opacity-70">Mismatch</div>
+            <div className="mt-1 font-mono text-3xl font-semibold tabular-nums">
+              {mismatch != null ? (mismatch > 0 ? "+" : "") + mismatch : "—"}
             </div>
+            <div className="mt-1 text-xs font-medium">{verdict || "Set a claim"}</div>
           </div>
         </div>
+
+        {/* Detail panels */}
+        <div className="grid gap-5 sm:grid-cols-2">
+          <PanelSection kicker="Publisher information">
+            <DefRow label="Publisher">{publisher || "—"}</DefRow>
+            <DefRow label="Claimed difficulty">{claimed || "—"}</DefRow>
+            <DefRow label="Claimed score"><span className="font-mono tabular-nums">{claimedScore != null ? claimedScore : "—"}</span></DefRow>
+          </PanelSection>
+          <PanelSection kicker="Measured assessment">
+            <DefRow label="Highest technique found">
+              {result.hardestTech.name}
+              {result.outOfScope ? <span className="ml-1 align-top font-mono text-[9px] text-rose-500">★</span> : null}
+            </DefRow>
+            <DefRow label="Measured score"><span className="font-mono tabular-nums">{measured}</span></DefRow>
+            <DefRow label="Clues given"><span className="font-mono tabular-nums">{result.clues}</span></DefRow>
+          </PanelSection>
+        </div>
+
+        {result.outOfScope ? (
+          <div className="flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-600/20 dark:bg-rose-500/10 dark:text-rose-300">
+            <Icon.warn width="14" height="14" className="mt-0.5 shrink-0" />
+            Advanced Out-of-Scope Technique Detected — graded at the scale maximum (10).
+          </div>
+        ) : null}
+
+        {/* Explanation */}
+        {explanation ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+            <h4 className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-slate-400">Explanation</h4>
+            <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200" style={{ textWrap: "pretty" }}>{explanation}</p>
+          </div>
+        ) : null}
       </div>
 
-      {/* technique breakdown */}
+      {/* Technique breakdown — methodological transparency */}
       <div className="border-t border-slate-100 px-5 pb-5 pt-4 dark:border-slate-800">
         <div className="mb-2 flex items-center justify-between">
-          <h4 className="font-mono text-[11px] uppercase tracking-widest text-slate-500 dark:text-slate-400">Technique breakdown</h4>
-          <span className="font-mono text-[11px] text-slate-400">{result.breakdown.length} techniques</span>
+          <h4 className="font-mono text-[11px] uppercase tracking-widest text-slate-500 dark:text-slate-400">Techniques applied</h4>
+          <span className="font-mono text-[11px] text-slate-400">{result.breakdown.length} distinct</span>
         </div>
         <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left font-mono text-[10px] uppercase tracking-wider text-slate-400 dark:bg-slate-950/40">
                 <th className="px-3 py-2 font-medium">Technique</th>
-                <th className="px-3 py-2 font-medium">Tier</th>
-                <th className="px-3 py-2 text-right font-medium">Uses</th>
-                <th className="px-3 py-2 text-right font-medium">Unit cost</th>
-                <th className="px-3 py-2 text-right font-medium">Subtotal</th>
+                <th className="px-3 py-2 text-right font-medium">Tier score</th>
+                <th className="px-3 py-2 text-right font-medium">Times used</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {result.breakdown.map((b) => (
-                <tr key={b.key} className="text-slate-700 dark:text-slate-200">
-                  <td className="px-3 py-2 font-medium">{b.name}</td>
-                  <td className="px-3 py-2"><TierTag tier={b.tier} /></td>
-                  <td className="px-3 py-2 text-right font-mono tnum">{b.count}</td>
-                  <td className="px-3 py-2 text-right font-mono tnum text-slate-400">{b.cost}</td>
-                  <td className="px-3 py-2 text-right font-mono tnum font-medium">{b.total}</td>
-                </tr>
-              ))}
+              {result.breakdown.map((b) => {
+                const top = b.score === result.measuredScore;
+                return (
+                  <tr key={b.key} className={top ? "bg-accent-50/50 dark:bg-accent-500/5" : ""}>
+                    <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-200">
+                      {b.name}
+                      {top ? <span className="ml-1.5 font-mono text-[9px] uppercase tracking-wide text-accent-600 dark:text-accent-400">peak</span> : null}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-600 dark:text-slate-300">{b.score}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">{b.count}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        <p className="mt-2.5 font-mono text-[10px] leading-relaxed text-slate-400">
-          Composite = hardest&nbsp;cost&nbsp;×&nbsp;2.4 + Σ(step&nbsp;costs)&nbsp;×&nbsp;0.32. Difficulty band derives from the hardest technique tier.
+        <p className="mt-2.5 font-mono text-[10px] leading-relaxed text-slate-400" style={{ textWrap: "pretty" }}>
+          Measured difficulty = the highest tier score among all techniques the solver was forced to use. Mismatch = measured score − claimed score.
         </p>
       </div>
     </Card>
-  );
-}
-
-function Stat({ label, value, mono, accent }) {
-  const ac = accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : accent === "rose" ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100";
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/20">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">{label}</div>
-      <div className={`mt-1 text-xl font-semibold ${mono ? "font-mono tnum" : ""} ${ac}`}>{value}</div>
-    </div>
   );
 }
 
@@ -134,26 +203,20 @@ function SubmitPage({ addRecord }) {
   const D = window.SudokuData, E = window.SudokuEngine;
   const [board, setBoard] = useState(emptyBoard);
   const [givens, setGivens] = useState(() => new Array(81).fill(false));
-  const [name, setName] = useState("");
   const [publisher, setPublisher] = useState("");
   const [claimed, setClaimed] = useState("");
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [sampleIdx, setSampleIdx] = useState(0);
   const [saved, setSaved] = useState(false);
 
   const conflicts = useMemo(() => [...E.findConflicts(board)], [board]);
   const filled = board.filter((v) => v).length;
+  const diffOptions = publisher ? D.diffsFor(publisher) : [];
 
-  const loadSample = () => {
-    const s = D.SAMPLES[sampleIdx % D.SAMPLES.length];
-    const b = E.parse(s.grid);
-    setBoard(b);
-    setGivens(b.map((v) => v !== 0));
-    setClaimed(s.claimed);
-    setPublisher(publisher || D.PUBLISHERS[0]);
+  const onPublisherChange = (p) => {
+    setPublisher(p);
+    setClaimed("");          // reset difficulty when publisher changes
     setResult(null); setSaved(false);
-    setSampleIdx((i) => i + 1);
   };
 
   const clearAll = () => {
@@ -172,21 +235,32 @@ function SubmitPage({ addRecord }) {
     }, 560);
   };
 
+  // Persist a full Technique-Tier record. The repository table, analytics
+  // counters, puzzle count and analytics unlock all update automatically via
+  // shared React state — no manual refresh required.
   const submitToRepo = () => {
     if (!result || !result.ok) return;
+    const cScore = D.claimedScore(publisher, claimed);
+    const mismatch = result.measuredScore - cScore;
     addRecord({
-      publisher: publisher || "Unverified",
-      publisherShort: D.PUBLISHER_SHORT[publisher] || "User",
-      claimed: claimed || result.difficulty,
-      measured: result.difficulty,
-      score: result.composite,
-      tech: result.hardest.name,
+      publisher,
+      publisherShort: D.SUBMIT_PUBLISHER_SHORT[publisher] || publisher,
+      claimed,
+      claimedScore: cScore,
+      measuredScore: result.measuredScore,
+      mismatch,
+      verdict: D.verdict(mismatch),
+      tech: result.hardestTech.name,
       clues: result.clues,
+      grid: board.map((v) => v || 0).join(""),
       date: new Date().toISOString().slice(0, 10),
-      submittedBy: name || "Anonymous",
+      ts: new Date().toISOString(),
+      source: "user",
     });
     setSaved(true);
   };
+
+  const canAnalyze = !busy && publisher && claimed && filled >= 17 && conflicts.length === 0;
 
   return (
     <div className="mx-auto max-w-[1180px] px-5 py-8 lg:px-8">
@@ -195,14 +269,32 @@ function SubmitPage({ addRecord }) {
           <div className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-accent-600 dark:text-accent-400">Submission · Page 1</div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Analyze a puzzle</h1>
           <p className="mt-1.5 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Enter a 9×9 puzzle and a claimed difficulty. The engine solves it with human techniques, measures the true difficulty, and flags any mismatch with the publisher's claim.
+            Enter a 9×9 puzzle and the publisher's claimed difficulty. The engine solves it with human techniques, measures the true difficulty from the most advanced technique required, and flags any mismatch with the claim.
           </p>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[auto_1fr]">
-        {/* LEFT — grid + form */}
+        {/* LEFT — form + grid */}
         <div className="flex flex-col gap-5">
+          <Card className="p-5">
+            <h3 className="mb-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Puzzle metadata</h3>
+            <div className="grid grid-cols-2 gap-3.5">
+              <Field label="Publisher" hint="required">
+                <Select value={publisher} onChange={onPublisherChange} options={D.SUBMIT_PUBLISHERS} placeholder="Select…" />
+              </Field>
+              <Field label="Claimed difficulty" hint={publisher ? "required" : "pick publisher"}>
+                <Select
+                  value={claimed}
+                  onChange={(v) => { setClaimed(v); setResult(null); setSaved(false); }}
+                  options={diffOptions}
+                  placeholder={publisher ? "Select…" : "—"}
+                  className={!publisher ? "cursor-not-allowed opacity-50" : ""}
+                />
+              </Field>
+            </div>
+          </Card>
+
           <Card className="p-5">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
@@ -213,11 +305,8 @@ function SubmitPage({ addRecord }) {
             <div className="flex justify-center">
               <SudokuGrid board={board} givens={givens} conflicts={conflicts} onChange={onGridChange} />
             </div>
-            <div className="mt-4 flex items-center gap-2">
-              <Button variant="outline" className="flex-1" onClick={loadSample}>
-                <Icon.reset />Load sample
-              </Button>
-              <Button variant="ghost" onClick={clearAll}>Clear</Button>
+            <div className="mt-4 flex items-center justify-end">
+              <Button variant="ghost" onClick={clearAll}>Clear grid</Button>
             </div>
             {conflicts.length ? (
               <div className="mt-3 flex items-center gap-1.5 rounded-md bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">
@@ -226,40 +315,26 @@ function SubmitPage({ addRecord }) {
             ) : (
               <p className="mt-3 font-mono text-[10px] text-slate-400">Click a cell, type 1–9, arrows to move, 0/⌫ to clear.</p>
             )}
-          </Card>
-
-          <Card className="p-5">
-            <h3 className="mb-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Metadata</h3>
-            <div className="grid gap-3.5">
-              <Field label="Your name">
-                <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. A. Researcher" />
-              </Field>
-              <div className="grid grid-cols-2 gap-3.5">
-                <Field label="Publisher">
-                  <Select value={publisher} onChange={setPublisher} options={D.PUBLISHERS} placeholder="Select…" />
-                </Field>
-                <Field label="Claimed difficulty">
-                  <Select value={claimed} onChange={setClaimed} options={D.DIFFS} placeholder="Select…" />
-                </Field>
-              </div>
-            </div>
-            <Button className="mt-4 w-full" onClick={analyze} disabled={busy || filled < 17}>
+            <Button className="mt-4 w-full" onClick={analyze} disabled={!canAnalyze}>
               {busy ? <><Icon.spin className="animate-spin" />Analyzing…</> : <><Icon.play />Analyze puzzle</>}
             </Button>
+            {!publisher || !claimed ? (
+              <p className="mt-2 text-center font-mono text-[10px] text-slate-400">Select a publisher and claimed difficulty to enable analysis.</p>
+            ) : null}
             {result && result.ok ? (
               <button
                 onClick={submitToRepo}
                 disabled={saved}
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-accent-700 transition hover:bg-accent-50 disabled:opacity-60 dark:text-accent-300 dark:hover:bg-accent-500/10"
               >
-                {saved ? <><Icon.check />Saved to repository</> : <>Save result to repository<Icon.arrow /></>}
+                {saved ? <><Icon.check />Saved to repository</> : <>Save puzzle to repository<Icon.arrow /></>}
               </button>
             ) : null}
           </Card>
         </div>
 
         {/* RIGHT — results */}
-        <ResultsCard result={busy ? null : result} claimed={claimed} name={name} />
+        <ResultsCard result={busy ? null : result} publisher={publisher} claimed={claimed} />
       </div>
     </div>
   );

@@ -123,15 +123,15 @@ function quantiles(arr) {
 function BoxPlot({ rows, publishers }) {
   const W = 520, H = 260, m = { t: 16, r: 16, b: 52, l: 40 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
-  const maxScore = 1000;
+  const maxScore = 10;
   const groups = publishers.map((p) => {
-    const scores = rows.filter((r) => r.publisher === p).map((r) => r.score);
-    return { p, short: window.SudokuData.PUBLISHER_SHORT[p] || p, scores };
+    const scores = rows.filter((r) => r.publisher === p).map((r) => r.measuredScore);
+    return { p, short: window.SudokuData.SUBMIT_PUBLISHER_SHORT[p] || p, scores };
   }).filter((g) => g.scores.length);
   const y = (v) => m.t + ih - (v / maxScore) * ih;
   const slot = iw / Math.max(1, groups.length);
   const boxW = Math.min(54, slot * 0.5);
-  const yticks = [0, 250, 500, 750, 1000];
+  const yticks = [0, 2, 4, 6, 8, 10];
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="block">
@@ -165,7 +165,7 @@ function BoxPlot({ rows, publishers }) {
           </g>
         );
       })}
-      <text x={12} y={m.t + ih / 2} textAnchor="middle" transform={`rotate(-90 12 ${m.t + ih / 2})`} className={`${labelText} font-mono`} fontSize="9" letterSpacing="0.5">COMPOSITE SCORE</text>
+      <text x={12} y={m.t + ih / 2} textAnchor="middle" transform={`rotate(-90 12 ${m.t + ih / 2})`} className={`${labelText} font-mono`} fontSize="9" letterSpacing="0.5">MEASURED SCORE</text>
     </svg>
   );
 }
