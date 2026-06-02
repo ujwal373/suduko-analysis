@@ -103,7 +103,7 @@ class TestTechCatalogue:
             assert key in TECH
 
     def test_tech_scores(self):
-        """Test technique scores match JavaScript values."""
+        """Test technique scores follow strict 1-10 scale."""
         assert TECH["fullHouse"].score == 1
         assert TECH["nakedSingle"].score == 1
         assert TECH["hiddenSingle"].score == 2
@@ -112,7 +112,8 @@ class TestTechCatalogue:
         assert TECH["nakedPair"].score == 4
         assert TECH["xWing"].score == 6
         assert TECH["xyWing"].score == 9
-        assert TECH["backtrack"].score == 12
+        # backtrack is out-of-scope (beyond 1-10 scale), so score is None
+        assert TECH["backtrack"].score is None
 
     def test_tech_costs(self):
         """Test technique costs match JavaScript values."""

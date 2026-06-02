@@ -71,6 +71,18 @@ for i in range(81):
 
 
 # ---- Technique catalogue ----------------------------------------------------
+# Scoring Scale (strict 1-10):
+#   1  Full House, Naked Single
+#   2  Hidden Single
+#   3  Pointing Pair, Box-Line Reduction
+#   4  Naked Pair / Triple / Quad
+#   5  Hidden Pair / Triple / Quad
+#   6  X-Wing
+#   7  Swordfish, X-Colours (not implemented)
+#   8  Jellyfish (not implemented)
+#   9  XY-Wing, W-Wing, Skyscraper, Empty Rectangle
+#  10  XYZ-Wing, Unique Rectangle (not implemented)
+# Anything beyond this scale is "Out of Scope" (no numeric score)
 
 @dataclass(frozen=True)
 class Technique:
@@ -79,7 +91,7 @@ class Technique:
     name: str
     cost: int
     tier: int
-    score: int
+    score: Optional[int]  # None for out-of-scope techniques
 
 
 TECH: dict[str, Technique] = {
@@ -96,10 +108,12 @@ TECH: dict[str, Technique] = {
     "hiddenQuad": Technique(key="hiddenQuad", name="Hidden Quad", cost=150, tier=3, score=5),
     "xWing": Technique(key="xWing", name="X-Wing", cost=165, tier=3, score=6),
     "xyWing": Technique(key="xyWing", name="XY-Wing", cost=190, tier=3, score=9),
-    "backtrack": Technique(key="backtrack", name="Out-of-Scope Technique", cost=360, tier=3, score=12),
+    # Out-of-scope: score is None (beyond 1-10 scale)
+    "backtrack": Technique(key="backtrack", name="Out-of-Scope Technique", cost=360, tier=3, score=None),
 }
 
-# Advanced techniques beyond the 1-10 scale
+# Advanced techniques beyond the 1-10 scale (out of scope)
+# These require techniques not implemented in this solver
 OUT_OF_SCOPE: list[str] = [
     "Alternating Inference Chain",
     "Nice Loop",
@@ -646,17 +660,19 @@ def analyze(input_val: Union[str, list[int]]) -> dict[str, Any]:
         max_cost = TECH["backtrack"].cost
         max_tier = 3
         hardest = TECH["backtrack"]
-        max_score = TECH["backtrack"].score  # 12
+        # Out of scope: max_score stays at highest known technique used
+        # (don't assign numeric score beyond 10)
         hardest_by_score = TECH["backtrack"]
 
     # Technique-Tier Classification
+    # Strict 1-10 scale; out-of-scope is indicated separately, not with score 12
     measured_score = max_score if max_score else 1
     if out_of_scope:
         hardest_tech = {
             "key": "outOfScope",
             "name": assumed_tech,
-            "score": 12,
             "outOfScope": True,
+            # No numeric "score" field - this is beyond the 1-10 scale
         }
     else:
         hardest_tech = {
@@ -679,15 +695,20 @@ def analyze(input_val: Union[str, list[int]]) -> dict[str, Any]:
         if k in counts:
             m = TECH[k]
             name = (assumed_tech + " (out of scope)") if k == "backtrack" and assumed_tech else m.name
-            breakdown.append({
+            entry = {
                 "key": k,
                 "name": name,
                 "tier": m.tier,
-                "score": m.score,
                 "count": counts[k],
                 "cost": m.cost,
                 "total": m.cost * counts[k],
-            })
+            }
+            # Only include score if it's on the 1-10 scale (not out-of-scope)
+            if m.score is not None:
+                entry["score"] = m.score
+            else:
+                entry["outOfScope"] = True
+            breakdown.append(entry)
 
     solution = solve_full(board)
 
