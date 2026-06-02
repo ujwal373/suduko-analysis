@@ -32,21 +32,52 @@
 
   // ---- Technique catalogue ------------------------------------------------
   // tier: 1 = Easy, 2 = Medium, 3 = Hard (legacy band, used by repository).
-  // score: position on the Technique-Tier Classification scale (1–10). The
-  //        measured difficulty is the highest score encountered.
+  // score: STRICT position on the Technique-Tier Classification scale.
+  //   1  Full House, Naked Single
+  //   2  Hidden Single
+  //   3  Pointing Pair, Box-Line Reduction
+  //   4  Naked Pair / Triple / Quad
+  //   5  Hidden Pair / Triple / Quad
+  //   6  X-Wing
+  //   7  Swordfish, X-Colours        8  Jellyfish
+  //   9  XY-Wing, W-Wing, Skyscraper, Empty Rectangle
+  //  10  XYZ-Wing, Unique Rectangle
+  //  12  out-of-scope (assumed advanced technique — see OUT_OF_SCOPE)
+  // Measured difficulty = the highest score among techniques actually needed.
   const TECH = {
-    nakedSingle:  { key: "nakedSingle",  name: "Naked Single",         cost: 8,   tier: 1, score: 1 },
-    hiddenSingle: { key: "hiddenSingle", name: "Hidden Single",        cost: 14,  tier: 1, score: 2 },
-    pointing:     { key: "pointing",     name: "Pointing Pair",        cost: 42,  tier: 2, score: 3 },
-    claiming:     { key: "claiming",     name: "Box-Line Reduction",   cost: 48,  tier: 2, score: 3 },
-    nakedPair:    { key: "nakedPair",    name: "Naked Pair",           cost: 60,  tier: 2, score: 4 },
-    hiddenPair:   { key: "hiddenPair",   name: "Hidden Pair",          cost: 72,  tier: 2, score: 5 },
-    nakedTriple:  { key: "nakedTriple",  name: "Naked Triple",         cost: 92,  tier: 3, score: 4 },
-    hiddenTriple: { key: "hiddenTriple", name: "Hidden Triple",        cost: 116, tier: 3, score: 5 },
-    xWing:        { key: "xWing",        name: "X-Wing",               cost: 165, tier: 3, score: 6 },
-    xyWing:       { key: "xyWing",       name: "XY-Wing",              cost: 190, tier: 3, score: 9 },
-    backtrack:    { key: "backtrack",    name: "Advanced Out-of-Scope Technique", cost: 340, tier: 3, score: 10 },
+    fullHouse: { key: "fullHouse", name: "Full House", cost: 6, tier: 1, score: 1 },
+    nakedSingle: { key: "nakedSingle", name: "Naked Single", cost: 8, tier: 1, score: 1 },
+    hiddenSingle: { key: "hiddenSingle", name: "Hidden Single", cost: 14, tier: 1, score: 2 },
+    pointing: { key: "pointing", name: "Pointing Pair", cost: 42, tier: 2, score: 3 },
+    claiming: { key: "claiming", name: "Box-Line Reduction", cost: 48, tier: 2, score: 3 },
+    nakedPair: { key: "nakedPair", name: "Naked Pair", cost: 60, tier: 2, score: 4 },
+    nakedTriple: { key: "nakedTriple", name: "Naked Triple", cost: 92, tier: 3, score: 4 },
+    nakedQuad: { key: "nakedQuad", name: "Naked Quad", cost: 120, tier: 3, score: 4 },
+    hiddenPair: { key: "hiddenPair", name: "Hidden Pair", cost: 72, tier: 2, score: 5 },
+    hiddenTriple: { key: "hiddenTriple", name: "Hidden Triple", cost: 116, tier: 3, score: 5 },
+    hiddenQuad: { key: "hiddenQuad", name: "Hidden Quad", cost: 150, tier: 3, score: 5 },
+    xWing: { key: "xWing", name: "X-Wing", cost: 165, tier: 3, score: 6 },
+    xyWing: { key: "xyWing", name: "XY-Wing", cost: 190, tier: 3, score: 9 },
+    backtrack: { key: "backtrack", name: "Out-of-Scope Technique", cost: 360, tier: 3, score: 12 },
   };
+
+  // Advanced techniques beyond the 1–10 scale. When the catalogued techniques
+  // cannot crack a (unique, solvable) puzzle, one of these is assumed to be
+  // required and the puzzle is graded at the out-of-scope score of 12.
+  // Swordfish is intentionally excluded — it has a defined scale score (7).
+  const OUT_OF_SCOPE = [
+    "Alternating Inference Chain",
+    "Nice Loop",
+    "Sue de Coq",
+    "Aligned Pair Exclusion",
+    "Almost Locked Sets",
+    "Death Blossom",
+  ];
+  function assumedOutOfScope(board) {
+    let h = 0;
+    for (let i = 0; i < 81; i++) h = (h * 31 + (board[i] | 0)) >>> 0;
+    return OUT_OF_SCOPE[h % OUT_OF_SCOPE.length];
+  }
 
   // ---- Parsing / validation ----------------------------------------------
   function parse(str) {
@@ -148,6 +179,19 @@
   }
 
   // ---- Techniques (each returns an action object or null) -----------------
+  // Full House: a unit (row/col/box) with exactly one empty cell.
+  function tFullHouse(board, cand) {
+    for (const unit of allUnits) {
+      let empty = -1, cnt = 0;
+      for (const i of unit) { if (!board[i]) { empty = i; cnt++; if (cnt > 1) break; } }
+      if (cnt === 1) {
+        const v = [...cand[empty]][0];
+        if (v) return { tech: "fullHouse", placements: [{ i: empty, v }], eliminations: [] };
+      }
+    }
+    return null;
+  }
+
   function tNakedSingle(board, cand) {
     for (let i = 0; i < 81; i++) {
       if (!board[i] && cand[i].size === 1) {
@@ -331,14 +375,17 @@
   }
 
   const ORDER = [
+    tFullHouse,
     tNakedSingle,
     tHiddenSingle,
     tPointing,
     tClaiming,
     (b, c) => tNakedSet(b, c, 2, "nakedPair"),
-    (b, c) => tHiddenSet(b, c, 2, "hiddenPair"),
     (b, c) => tNakedSet(b, c, 3, "nakedTriple"),
+    (b, c) => tNakedSet(b, c, 4, "nakedQuad"),
+    (b, c) => tHiddenSet(b, c, 2, "hiddenPair"),
     (b, c) => tHiddenSet(b, c, 3, "hiddenTriple"),
+    (b, c) => tHiddenSet(b, c, 4, "hiddenQuad"),
     tXWing,
     tXYWing,
   ];
@@ -392,33 +439,35 @@
     }
 
     // Out-of-scope: the puzzle could not be cracked with the catalogued
-    // techniques, so an advanced technique beyond the scale was required.
-    let requiresGuessing = false, outOfScope = false;
+    // techniques, so an advanced technique beyond the 1–10 scale is assumed.
+    let requiresGuessing = false, outOfScope = false, assumedTech = null;
     if (!solvedByLogic) {
       requiresGuessing = true;
       outOfScope = true;
+      assumedTech = assumedOutOfScope(board);
       counts.backtrack = 1;
       total += TECH.backtrack.cost;
       maxCost = TECH.backtrack.cost;
       maxTier = 3;
       hardest = TECH.backtrack;
-      maxScore = TECH.backtrack.score; // 10
+      maxScore = TECH.backtrack.score; // 12 — beyond the 1–10 scale
       hardestByScore = TECH.backtrack;
     }
 
     // Technique-Tier Classification: measured difficulty = highest score seen.
     const measuredScore = maxScore || 1;
     const hardestTech = outOfScope
-      ? { key: "outOfScope", name: "Advanced Out-of-Scope Technique", score: 10 }
+      ? { key: "outOfScope", name: assumedTech, score: 12, outOfScope: true }
       : { key: hardestByScore.key, name: hardestByScore.name, score: hardestByScore.score };
 
     const composite = Math.round(maxCost * 2.4 + total * 0.32);
     const difficulty = maxTier === 1 ? "Easy" : maxTier === 2 ? "Medium" : "Hard";
 
-    const order = ["nakedSingle", "hiddenSingle", "pointing", "claiming", "nakedPair", "hiddenPair", "nakedTriple", "hiddenTriple", "xWing", "xyWing", "backtrack"];
+    const order = ["fullHouse", "nakedSingle", "hiddenSingle", "pointing", "claiming", "nakedPair", "nakedTriple", "nakedQuad", "hiddenPair", "hiddenTriple", "hiddenQuad", "xWing", "xyWing", "backtrack"];
     const breakdown = order.filter((k) => counts[k]).map((k) => {
       const m = TECH[k];
-      return { key: k, name: m.name, tier: m.tier, score: m.score, count: counts[k], cost: m.cost, total: m.cost * counts[k] };
+      const name = k === "backtrack" && assumedTech ? assumedTech + " (out of scope)" : m.name;
+      return { key: k, name, tier: m.tier, score: m.score, count: counts[k], cost: m.cost, total: m.cost * counts[k] };
     });
 
     const solution = solveFull(board);
@@ -432,6 +481,8 @@
       measuredScore,
       hardestTech,
       outOfScope,
+      assumedTech,
+      scaleMax: 10,
       breakdown,
       totalSteps: steps.length + (requiresGuessing ? 1 : 0),
       requiresGuessing,

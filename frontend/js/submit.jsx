@@ -6,11 +6,11 @@ function emptyBoard() { return new Array(81).fill(0); }
 // Visual treatment for a mismatch value (measured − claimed).
 function verdictTone(mismatch) {
   if (mismatch === 0) return { tone: "accurate", cls: "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 ring-emerald-600/20", glyph: <Icon.check />, dot: "#059669" };
-  if (mismatch > 0)   return { tone: "under",    cls: "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 ring-amber-600/20",       glyph: <Icon.warn width="13" height="13" />, dot: "#d97706" };
-  return                     { tone: "over",     cls: "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 ring-rose-600/20",          glyph: <Icon.warn width="13" height="13" />, dot: "#e11d48" };
+  if (mismatch > 0) return { tone: "under", cls: "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 ring-amber-600/20", glyph: <Icon.warn width="13" height="13" />, dot: "#d97706" };
+  return { tone: "over", cls: "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 ring-rose-600/20", glyph: <Icon.warn width="13" height="13" />, dot: "#e11d48" };
 }
 
-function ScoreTile({ kicker, score, caption, accent }) {
+function ScoreTile({ kicker, score, caption, accent, max = 10 }) {
   const ring = accent === "measured"
     ? "border-accent-300 dark:border-accent-500/40"
     : "border-slate-200 dark:border-slate-800";
@@ -19,7 +19,7 @@ function ScoreTile({ kicker, score, caption, accent }) {
       <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">{kicker}</div>
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="font-mono text-3xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{score}</span>
-        <span className="font-mono text-sm text-slate-400">/ 10</span>
+        <span className="font-mono text-sm text-slate-400">/ {max}</span>
       </div>
       <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{caption}</div>
     </div>
@@ -50,7 +50,7 @@ function buildExplanation({ result, publisher, claimed, claimedScore, mismatch, 
   const tech = result.hardestTech.name;
   const ms = result.measuredScore;
   const techPhrase = result.outOfScope
-    ? `required an advanced technique beyond the standard scale, capping its measured difficulty score at ${ms}`
+    ? `required an advanced technique beyond the 1–10 scale${tech ? ` (assumed: ${tech})` : ""}, capping its measured difficulty score at ${ms}`
     : `required ${/^[aeiou]/i.test(tech) ? "an" : "a"} ${tech} technique, giving it a measured difficulty score of ${ms}`;
 
   const claimPhrase = `${publisher} classified the puzzle as ${claimed} (claimed score ${claimedScore})`;
@@ -116,7 +116,7 @@ function ResultsCard({ result, publisher, claimed }) {
         {/* Score comparison hero */}
         <div className="grid grid-cols-3 gap-3">
           <ScoreTile kicker="Claimed" score={claimedScore != null ? claimedScore : "—"} caption={claimed ? `${publisher} · ${claimed}` : "No claim set"} />
-          <ScoreTile kicker="Measured" score={measured} caption={result.hardestTech.name} accent="measured" />
+          <ScoreTile kicker="Measured" score={measured} caption={result.hardestTech.name} accent="measured" max={result.outOfScope ? 12 : 10} />
           <div className={`flex flex-col justify-center rounded-lg border p-4 ${mismatch != null ? "border-transparent " + vt.cls : "border-slate-200 dark:border-slate-800"}`}>
             <div className="font-mono text-[10px] uppercase tracking-wider opacity-70">Mismatch</div>
             <div className="mt-1 font-mono text-3xl font-semibold tabular-nums">
@@ -146,7 +146,7 @@ function ResultsCard({ result, publisher, claimed }) {
         {result.outOfScope ? (
           <div className="flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-600/20 dark:bg-rose-500/10 dark:text-rose-300">
             <Icon.warn width="14" height="14" className="mt-0.5 shrink-0" />
-            Advanced Out-of-Scope Technique Detected — graded at the scale maximum (10).
+            Advanced Out-of-Scope Technique Detected{result.assumedTech ? ` — assumed ${result.assumedTech}` : ""} — graded at 12, beyond the 1–10 scale.
           </div>
         ) : null}
 
