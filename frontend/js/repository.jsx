@@ -357,6 +357,35 @@ function RepositoryPage({ repo }) {
         </Card>
       ) : (
         <div className="space-y-5">
+          {/* Additional statistics — always visible, above charts */}
+          <Card>
+            <CardHead title="Correlation statistics" sub="Detailed correlation and distribution metrics" icon={<Icon.chart />} />
+            <div className="p-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Pearson correlation</div>
+                  <div className="mt-1 font-mono text-xl font-semibold text-slate-800 dark:text-white">{stats.pearson.toFixed(3)}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">claimed vs measured</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Mean measured</div>
+                  <div className="mt-1 font-mono text-xl font-semibold text-slate-800 dark:text-white">{stats.meanMeasured.toFixed(2)}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">average score</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Underrated</div>
+                  <div className="mt-1 font-mono text-xl font-semibold text-amber-600 dark:text-amber-400">{stats.under}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">harder than claimed</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Overrated</div>
+                  <div className="mt-1 font-mono text-xl font-semibold text-sky-600 dark:text-sky-400">{stats.over}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">easier than claimed</div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
           {/* Chart 1: Publisher comparison box plot — full width */}
           <Card>
             <CardHead title="Publisher comparison" sub="Measured difficulty score distribution per publisher" icon={<Icon.chart />} />
@@ -379,51 +408,6 @@ function RepositoryPage({ repo }) {
           <Card>
             <CardHead title="Publisher × difficulty heatmap" sub="Average mismatch by publisher and claimed difficulty level" icon={<Icon.chart />} />
             <div className="p-4"><Heatmap rows={filtered} publishers={D.SUBMIT_PUBLISHERS} /></div>
-          </Card>
-
-          {/* Additional visualizations — expandable */}
-          <Card>
-            <button
-              onClick={() => setMoreOpen((v) => !v)}
-              className="flex w-full items-center justify-between gap-4 px-5 py-3.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-slate-400 dark:text-slate-500"><Icon.chart /></span>
-                <div>
-                  <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">Additional statistics</h3>
-                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Detailed correlation and distribution metrics</p>
-                </div>
-              </div>
-              <span className={`text-slate-400 transition-transform ${moreOpen ? "rotate-180" : ""}`}>
-                <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </span>
-            </button>
-            {moreOpen ? (
-              <div className="border-t border-slate-100 p-4 dark:border-slate-800">
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Pearson correlation</div>
-                    <div className="mt-1 font-mono text-xl font-semibold text-slate-800 dark:text-white">{stats.pearson.toFixed(3)}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">claimed vs measured</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Mean measured</div>
-                    <div className="mt-1 font-mono text-xl font-semibold text-slate-800 dark:text-white">{stats.meanMeasured.toFixed(2)}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">average score</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Underrated</div>
-                    <div className="mt-1 font-mono text-xl font-semibold text-amber-600 dark:text-amber-400">{stats.under}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">harder than claimed</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Overrated</div>
-                    <div className="mt-1 font-mono text-xl font-semibold text-sky-600 dark:text-sky-400">{stats.over}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">easier than claimed</div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
           </Card>
         </div>
       )}
