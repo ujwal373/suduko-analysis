@@ -101,17 +101,18 @@ class VerdictInput(BaseModel):
 async def root():
     """Root endpoint with API info."""
     return {
-        "name": "Sudoku Difficulty Validator API",
-        "version": "1.0.0",
+        "name": "Sudoku Research Platform API",
+        "version": "2.0.0",
         "endpoints": [
+            "POST /api/user/identify",
             "POST /api/analyze",
             "POST /api/parse",
             "POST /api/validate-conflicts",
             "POST /api/count-solutions",
             "POST /api/solve",
-            "GET /api/repository",
-            "POST /api/submit-puzzle",
-            "GET /api/analytics",
+            "GET /api/repository?user_id=",
+            "POST /api/submit-puzzle?user_id=",
+            "GET /api/analytics?user_id=",
             "GET /api/constants",
             "POST /api/claimed-score",
             "POST /api/verdict",
