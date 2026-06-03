@@ -199,16 +199,7 @@
       { name: "Unique Rectangle", score: 10 },
     ],
 
-    GRID_POOL: [
-      "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
-      "300000000970010000600583000200000900500621003008000005000435002000090056000000001",
-      "100000569492056108056109240009640801064010000218035604040500016905061402621000005",
-      "800000000003600000070090200050007000000045700000100030001000068008500010090000400",
-      "000000907000420180000705026100904000050000040000507009920108000034059000507000000",
-      "020810740700003100090002805009040087400208003160030200302700060005600008076051090",
-    ],
-
-    // Seed repository data (will be loaded from backend)
+    // Repository data (loaded from backend, starts empty)
     REPO: [],
 
     diffsFor: function (publisher) {
@@ -230,14 +221,13 @@
       return "Significantly Overrated";
     },
 
-    techForScore: function (score, rnd) {
+    techForScore: function (score) {
       const matches = SudokuData.TECHNIQUE_SCALE.filter((t) => t.score === score);
       if (!matches.length) return "Advanced Out-of-Scope Technique";
-      const i = rnd ? Math.floor(rnd() * matches.length) : 0;
-      return matches[i].name;
+      return matches[0].name;
     },
 
-    // Analytics - computed client-side for now (can be moved to backend)
+    // Analytics - computed client-side (can also be fetched from backend)
     analytics: function (rows) {
       const n = rows.length;
       if (n < 2) return { pearson: 0, agreement: 0, accurate: 0, over: 0, under: 0, meanMeasured: 0, meanAbsMismatch: 0, leaderboard: [], n: 0 };
@@ -283,62 +273,6 @@
       return { pearson: r, agreement, accurate, over, under, meanMeasured, meanAbsMismatch, leaderboard, n };
     },
 
-    // Generate synthetic records (client-side for demo)
-    generate: function (n, seed) {
-      // Simple deterministic RNG
-      let a = seed || 20260531;
-      const rnd = () => {
-        a = (a + 0x6D2B79F5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-      };
-
-      const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
-      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-
-      const PROFILE = {
-        "NYT": { bias: 0.1, noise: 0.9 },
-        "Sudoku.com": { bias: -1.6, noise: 1.2 },
-        "The Guardian": { bias: 1.2, noise: 1.7 },
-        "Times Sudoku": { bias: 1.7, noise: 1.5 },
-        "Others": { bias: -0.2, noise: 2.0 },
-      };
-
-      const records = [];
-      for (let k = 0; k < n; k++) {
-        const publisher = pick(SudokuData.SUBMIT_PUBLISHERS);
-        const prof = PROFILE[publisher];
-        const labels = SudokuData.DIFF_BY_PUBLISHER[publisher];
-        const claimed = pick(labels);
-        const cScore = SudokuData.claimedScore(publisher, claimed);
-        const drift = prof.bias + (rnd() - 0.5) * 2 * prof.noise;
-        const measuredScore = clamp(Math.round(cScore + drift), 1, 10);
-        const mismatch = measuredScore - cScore;
-        const tech = SudokuData.techForScore(measuredScore, rnd);
-        const clues = clamp(38 - measuredScore - Math.floor(rnd() * 3), 22, 36);
-        const d = new Date(2026, 0, 1 + Math.floor(rnd() * 150));
-
-        records.push({
-          id: "SDK-" + String(1042 + k).padStart(4, "0"),
-          publisher,
-          publisherShort: SudokuData.SUBMIT_PUBLISHER_SHORT[publisher],
-          claimed,
-          claimedScore: cScore,
-          measuredScore,
-          mismatch,
-          verdict: SudokuData.verdict(mismatch),
-          tech,
-          clues,
-          grid: SudokuData.GRID_POOL[k % SudokuData.GRID_POOL.length],
-          date: d.toISOString().slice(0, 10),
-          ts: d.toISOString(),
-          source: "seed",
-        });
-      }
-      return records;
-    },
-
     pearson: function (xs, ys) {
       const n = xs.length;
       if (n < 2) return 0;
@@ -352,9 +286,6 @@
       return dx && dy ? num / Math.sqrt(dx * dy) : 0;
     },
   };
-
-  // Generate initial REPO
-  SudokuData.REPO = SudokuData.generate(36);
 
   // Expose to window
   window.SudokuEngine = SudokuEngine;

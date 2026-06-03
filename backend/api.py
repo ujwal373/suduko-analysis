@@ -17,9 +17,9 @@ from solver import (
 )
 from analyzer import (
     SUBMIT_PUBLISHERS, SUBMIT_PUBLISHER_SHORT, DIFF_BY_PUBLISHER,
-    CLAIMED_SCORE, TECHNIQUE_SCALE, GRID_POOL, REPO,
+    CLAIMED_SCORE, TECHNIQUE_SCALE,
     diffs_for, claimed_score, verdict, tech_for_score,
-    generate, analytics, pearson
+    analytics
 )
 
 # ---- FastAPI App Setup ----
@@ -39,10 +39,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- In-memory repository (for demo; use database in production) ----
-# Start with seed data from analyzer.py
-repository: list[dict] = list(REPO)
-next_id = 1042 + len(REPO)
+# ---- Temporary in-memory repository (will be replaced with database) ----
+# Start empty - all data comes from user submissions
+repository: list[dict] = []
+next_id = 1043
 
 
 # ---- Pydantic Models ----
@@ -293,7 +293,6 @@ async def api_get_constants():
         "DIFF_BY_PUBLISHER": DIFF_BY_PUBLISHER,
         "CLAIMED_SCORE": CLAIMED_SCORE,
         "TECHNIQUE_SCALE": TECHNIQUE_SCALE,
-        "GRID_POOL": GRID_POOL,
         "TECH": tech_dict,
     }
 

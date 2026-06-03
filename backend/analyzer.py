@@ -1,15 +1,12 @@
-"""Sample puzzles (real, engine-verified) + deterministic repository dataset.
+"""Publisher data, difficulty mappings, verdict calculations, and analytics functions.
 
-Faithful Python migration from data.js. Contains publisher data, difficulty
-mappings, verdict calculations, deterministic RNG, and analytics functions.
-
-This module preserves EXACT behavioral equivalence with the JavaScript version.
+This module contains the configuration and analytics logic for the Sudoku
+Difficulty Validator research platform.
 """
 
 from __future__ import annotations
 import math
-from datetime import date, timedelta
-from typing import Any, Optional, Callable
+from typing import Any, Optional
 
 
 # ---- Publisher constants ----------------------------------------------------
@@ -138,165 +135,14 @@ SCORE_RANGE: dict[str, list[int]] = {
     "Hard": [525, 955],
 }
 
-# Per-publisher grading character on the 1-10 technique-tier scale
-# bias > 0 => publisher tends to UNDER-rate; bias < 0 => OVER-rates
-PROFILE: dict[str, dict[str, float]] = {
-    "NYT": {"bias": 0.1, "noise": 0.9},           # accurate, tight
-    "Sudoku.com": {"bias": -1.6, "noise": 1.2},   # inflates claims (over-rates)
-    "The Guardian": {"bias": 1.2, "noise": 1.7}, # under-rates, inconsistent
-    "Times Sudoku": {"bias": 1.7, "noise": 1.5}, # under-rates the most
-    "Others": {"bias": -0.2, "noise": 2.0},      # mixed / noisy
-}
-
-# Real, solvable puzzle grids assigned to seed records for the detail view
-GRID_POOL: list[str] = [
-    "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
-    "300000000970010000600583000200000900500621003008000005000435002000090056000000001",
-    "100000569492056108056109240009640801064010000218035604040500016905061402621000005",
-    "800000000003600000070090200050007000000045700000100030001000068008500010090000400",
-    "000000907000420180000705026100904000050000040000507009920108000034059000507000000",
-    "020810740700003100090002805009040087400208003160030200302700060005600008076051090",
-]
 
 
-def tech_for_score(score: int, rnd: Optional[Callable[[], float]] = None) -> str:
+def tech_for_score(score: int) -> str:
     """Get representative technique name for a measured score (1-10)."""
     matches = [t for t in TECHNIQUE_SCALE if t["score"] == score]
     if not matches:
         return "Advanced Out-of-Scope Technique"
-    i = int(rnd() * len(matches)) if rnd else 0
-    return matches[i]["name"]
-
-
-# ---- Deterministic RNG (matching JavaScript mulberry32 exactly) -------------
-
-def _imul(a: int, b: int) -> int:
-    """
-    Emulate JavaScript Math.imul (32-bit signed multiplication with truncation).
-
-    Math.imul returns the result of the C-like 32-bit multiplication of the
-    two parameters.
-    """
-    # Convert to unsigned 32-bit
-    a = a & 0xFFFFFFFF
-    b = b & 0xFFFFFFFF
-
-    # Perform multiplication and truncate to 32 bits
-    result = (a * b) & 0xFFFFFFFF
-
-    # Convert to signed 32-bit (for imul behavior)
-    if result >= 0x80000000:
-        return result - 0x100000000
-    return result
-
-
-def _to_signed32(n: int) -> int:
-    """Convert to signed 32-bit integer."""
-    n = n & 0xFFFFFFFF
-    if n >= 0x80000000:
-        return n - 0x100000000
-    return n
-
-
-def _unsigned_right_shift(n: int, bits: int) -> int:
-    """Emulate JavaScript's >>> (unsigned right shift)."""
-    return (n & 0xFFFFFFFF) >> bits
-
-
-def mulberry32(seed: int) -> Callable[[], float]:
-    """
-    Deterministic PRNG matching JavaScript mulberry32 implementation exactly.
-
-    JavaScript implementation:
-    function mulberry32(a) {
-      return function () {
-        a |= 0; a = (a + 0x6D2B79F5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-      };
-    }
-    """
-    state = [seed]  # Use list to allow modification in closure
-
-    def rng() -> float:
-        # a |= 0 converts to signed 32-bit
-        a = _to_signed32(state[0])
-        # a = (a + 0x6D2B79F5) | 0
-        a = _to_signed32(a + 0x6D2B79F5)
-        state[0] = a
-
-        # t = Math.imul(a ^ (a >>> 15), 1 | a)
-        t = _imul(a ^ _unsigned_right_shift(a, 15), 1 | a)
-
-        # t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-        t = (t + _imul(t ^ _unsigned_right_shift(t, 7), 61 | t)) ^ t
-        t = _to_signed32(t)
-
-        # return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-        result = _unsigned_right_shift(t ^ _unsigned_right_shift(t, 14), 0)
-        return result / 4294967296
-
-    return rng
-
-
-def generate(n: int, seed: int = 20260531) -> list[dict[str, Any]]:
-    """
-    Generate n deterministic test records.
-
-    Matches JavaScript generate() exactly for the same seed.
-    """
-    rnd = mulberry32(seed)
-
-    def pick(arr: list) -> Any:
-        return arr[int(rnd() * len(arr))]
-
-    def clamp(v: int, lo: int, hi: int) -> int:
-        return max(lo, min(hi, v))
-
-    records: list[dict[str, Any]] = []
-    for k in range(n):
-        publisher = pick(SUBMIT_PUBLISHERS)
-        prof = PROFILE[publisher]
-
-        # Pick the publisher's claimed label, then derive measured score
-        labels = DIFF_BY_PUBLISHER[publisher]
-        claimed = pick(labels)
-        c_score = claimed_score(publisher, claimed)
-
-        drift = prof["bias"] + (rnd() - 0.5) * 2 * prof["noise"]
-        measured_score = clamp(round(c_score + drift), 1, 10)
-        mismatch = measured_score - c_score
-
-        tech = tech_for_score(measured_score, rnd)
-        clues = clamp(38 - measured_score - int(rnd() * 3), 22, 36)
-
-        # Date: 2026-01-01 + random days (matching JS Date behavior)
-        days_offset = int(rnd() * 150)
-        d = date(2026, 1, 1) + timedelta(days=days_offset)
-
-        records.append({
-            "id": f"SDK-{1042 + k:04d}",
-            "publisher": publisher,
-            "publisherShort": SUBMIT_PUBLISHER_SHORT[publisher],
-            "claimed": claimed,
-            "claimedScore": c_score,
-            "measuredScore": measured_score,
-            "mismatch": mismatch,
-            "verdict": verdict(mismatch),
-            "tech": tech,
-            "clues": clues,
-            "grid": GRID_POOL[k % len(GRID_POOL)],
-            "date": d.isoformat(),
-            "ts": d.isoformat(),  # Simplified; JS includes time component
-            "source": "seed",
-        })
-
-    return records
-
-
-# Pre-generate the repository (36 records)
-REPO: list[dict[str, Any]] = generate(36)
+    return matches[0]["name"]
 
 
 # ---- Analytics helpers ------------------------------------------------------
@@ -409,16 +255,11 @@ __all__ = [
     'TECHNIQUE_SCALE',
     'TECH_BY_TIER',
     'SCORE_RANGE',
-    'PROFILE',
-    'GRID_POOL',
-    'REPO',
     'DIFF_IDX',
     'diffs_for',
     'claimed_score',
     'verdict',
     'tech_for_score',
-    'mulberry32',
-    'generate',
     'pearson',
     'analytics',
 ]
