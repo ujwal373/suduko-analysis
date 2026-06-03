@@ -78,10 +78,10 @@ for i in range(81):
 #   4  Naked Pair / Triple / Quad
 #   5  Hidden Pair / Triple / Quad
 #   6  X-Wing
-#   7  Swordfish, X-Colours (not implemented)
-#   8  Jellyfish (not implemented)
+#   7  Swordfish, X-Colors
+#   8  Jellyfish
 #   9  XY-Wing, W-Wing, Skyscraper, Empty Rectangle
-#  10  XYZ-Wing, Unique Rectangle (not implemented)
+#  10  XYZ-Wing, Unique Rectangle
 # Anything beyond this scale is "Out of Scope" (no numeric score)
 
 @dataclass(frozen=True)
@@ -107,7 +107,19 @@ TECH: dict[str, Technique] = {
     "hiddenTriple": Technique(key="hiddenTriple", name="Hidden Triple", cost=116, tier=3, score=5),
     "hiddenQuad": Technique(key="hiddenQuad", name="Hidden Quad", cost=150, tier=3, score=5),
     "xWing": Technique(key="xWing", name="X-Wing", cost=165, tier=3, score=6),
+    # Score 7 techniques
+    "swordfish": Technique(key="swordfish", name="Swordfish", cost=200, tier=3, score=7),
+    "xColors": Technique(key="xColors", name="X-Colors", cost=210, tier=3, score=7),
+    # Score 8 technique
+    "jellyfish": Technique(key="jellyfish", name="Jellyfish", cost=240, tier=3, score=8),
+    # Score 9 techniques
     "xyWing": Technique(key="xyWing", name="XY-Wing", cost=190, tier=3, score=9),
+    "wWing": Technique(key="wWing", name="W-Wing", cost=220, tier=3, score=9),
+    "skyscraper": Technique(key="skyscraper", name="Skyscraper", cost=185, tier=3, score=9),
+    "emptyRectangle": Technique(key="emptyRectangle", name="Empty Rectangle", cost=195, tier=3, score=9),
+    # Score 10 techniques
+    "xyzWing": Technique(key="xyzWing", name="XYZ-Wing", cost=250, tier=3, score=10),
+    "uniqueRectangle": Technique(key="uniqueRectangle", name="Unique Rectangle", cost=260, tier=3, score=10),
     # Out-of-scope: score is None (beyond 1-10 scale)
     "backtrack": Technique(key="backtrack", name="Out-of-Scope Technique", cost=360, tier=3, score=None),
 }
@@ -512,21 +524,760 @@ def t_xy_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
     return None
 
 
-# Technique order (matching JS exactly)
+def t_swordfish(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    Swordfish: Fish pattern with 3 rows or 3 columns.
+
+    When a candidate appears in exactly 2-3 cells in each of 3 rows,
+    and those cells are confined to exactly 3 columns, eliminate that
+    candidate from those columns outside the defining rows.
+    """
+    for v in range(1, 10):
+        # Row-based Swordfish
+        row_positions: list[list[int]] = []
+        for r in range(9):
+            cols = [i % 9 for i in UNIT_ROWS[r] if not board[i] and v in cand[i]]
+            row_positions.append(cols)
+
+        for r1, r2, r3 in combinations(range(9), 3):
+            if not (2 <= len(row_positions[r1]) <= 3):
+                continue
+            if not (2 <= len(row_positions[r2]) <= 3):
+                continue
+            if not (2 <= len(row_positions[r3]) <= 3):
+                continue
+
+            cols_union = set(row_positions[r1]) | set(row_positions[r2]) | set(row_positions[r3])
+            if len(cols_union) != 3:
+                continue
+
+            elim = []
+            for c in cols_union:
+                for r in range(9):
+                    if r in (r1, r2, r3):
+                        continue
+                    i = r * 9 + c
+                    if not board[i] and v in cand[i]:
+                        elim.append({"i": i, "v": v})
+            if elim:
+                return {"tech": "swordfish", "placements": [], "eliminations": elim}
+
+        # Column-based Swordfish
+        col_positions: list[list[int]] = []
+        for c in range(9):
+            rows = [i // 9 for i in UNIT_COLS[c] if not board[i] and v in cand[i]]
+            col_positions.append(rows)
+
+        for c1, c2, c3 in combinations(range(9), 3):
+            if not (2 <= len(col_positions[c1]) <= 3):
+                continue
+            if not (2 <= len(col_positions[c2]) <= 3):
+                continue
+            if not (2 <= len(col_positions[c3]) <= 3):
+                continue
+
+            rows_union = set(col_positions[c1]) | set(col_positions[c2]) | set(col_positions[c3])
+            if len(rows_union) != 3:
+                continue
+
+            elim = []
+            for r in rows_union:
+                for c in range(9):
+                    if c in (c1, c2, c3):
+                        continue
+                    i = r * 9 + c
+                    if not board[i] and v in cand[i]:
+                        elim.append({"i": i, "v": v})
+            if elim:
+                return {"tech": "swordfish", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_x_colors(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    X-Colors (Simple Coloring): Chain-based technique using conjugate pairs.
+
+    For a candidate that appears exactly twice in a unit, those two cells
+    form a conjugate pair (one must be true, one false). Connect all such
+    pairs to form chains. Color the chain with two colors.
+
+    Elimination rules:
+    1. If two cells with the same color see each other, that color is false.
+    2. If an uncolored cell sees both colors, it can be eliminated.
+    """
+    for v in range(1, 10):
+        # Build graph of conjugate pairs for candidate v
+        # Each cell is a node; conjugate pairs are edges
+        conj_pairs: list[tuple[int, int]] = []
+
+        for unit in ALL_UNITS:
+            cells_with_v = [i for i in unit if not board[i] and v in cand[i]]
+            if len(cells_with_v) == 2:
+                c1, c2 = cells_with_v
+                conj_pairs.append((c1, c2))
+
+        if not conj_pairs:
+            continue
+
+        # Build adjacency list
+        adj: dict[int, list[int]] = {}
+        for c1, c2 in conj_pairs:
+            if c1 not in adj:
+                adj[c1] = []
+            if c2 not in adj:
+                adj[c2] = []
+            if c2 not in adj[c1]:
+                adj[c1].append(c2)
+            if c1 not in adj[c2]:
+                adj[c2].append(c1)
+
+        # Color the graph using BFS
+        color: dict[int, int] = {}
+        for start in adj:
+            if start in color:
+                continue
+            # BFS coloring
+            queue = [start]
+            color[start] = 0
+            while queue:
+                node = queue.pop(0)
+                node_color = color[node]
+                for neighbor in adj.get(node, []):
+                    if neighbor not in color:
+                        color[neighbor] = 1 - node_color
+                        queue.append(neighbor)
+
+        if len(color) < 2:
+            continue
+
+        # Collect cells by color
+        color0 = [c for c, col in color.items() if col == 0]
+        color1 = [c for c, col in color.items() if col == 1]
+
+        # Rule 1: Check if same-color cells see each other (contradiction)
+        def has_contradiction(cells: list[int]) -> bool:
+            for i in range(len(cells)):
+                for j in range(i + 1, len(cells)):
+                    if cells[j] in PEERS[cells[i]]:
+                        return True
+            return False
+
+        elim = []
+        if has_contradiction(color0):
+            # Color 0 is false, eliminate v from all color0 cells
+            for c in color0:
+                if v in cand[c]:
+                    elim.append({"i": c, "v": v})
+        elif has_contradiction(color1):
+            # Color 1 is false, eliminate v from all color1 cells
+            for c in color1:
+                if v in cand[c]:
+                    elim.append({"i": c, "v": v})
+
+        if elim:
+            return {"tech": "xColors", "placements": [], "eliminations": elim}
+
+        # Rule 2: Uncolored cell sees both colors
+        for i in range(81):
+            if board[i] or i in color or v not in cand[i]:
+                continue
+            sees_color0 = any(c in PEERS[i] for c in color0)
+            sees_color1 = any(c in PEERS[i] for c in color1)
+            if sees_color0 and sees_color1:
+                elim.append({"i": i, "v": v})
+
+        if elim:
+            return {"tech": "xColors", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_jellyfish(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    Jellyfish: Fish pattern with 4 rows or 4 columns.
+
+    When a candidate appears in exactly 2-4 cells in each of 4 rows,
+    and those cells are confined to exactly 4 columns, eliminate that
+    candidate from those columns outside the defining rows.
+    """
+    for v in range(1, 10):
+        # Row-based Jellyfish
+        row_positions: list[list[int]] = []
+        for r in range(9):
+            cols = [i % 9 for i in UNIT_ROWS[r] if not board[i] and v in cand[i]]
+            row_positions.append(cols)
+
+        for r1, r2, r3, r4 in combinations(range(9), 4):
+            rows = [r1, r2, r3, r4]
+            valid = True
+            for r in rows:
+                if not (2 <= len(row_positions[r]) <= 4):
+                    valid = False
+                    break
+            if not valid:
+                continue
+
+            cols_union = set()
+            for r in rows:
+                cols_union.update(row_positions[r])
+            if len(cols_union) != 4:
+                continue
+
+            elim = []
+            for c in cols_union:
+                for r in range(9):
+                    if r in rows:
+                        continue
+                    i = r * 9 + c
+                    if not board[i] and v in cand[i]:
+                        elim.append({"i": i, "v": v})
+            if elim:
+                return {"tech": "jellyfish", "placements": [], "eliminations": elim}
+
+        # Column-based Jellyfish
+        col_positions: list[list[int]] = []
+        for c in range(9):
+            rows = [i // 9 for i in UNIT_COLS[c] if not board[i] and v in cand[i]]
+            col_positions.append(rows)
+
+        for c1, c2, c3, c4 in combinations(range(9), 4):
+            cols = [c1, c2, c3, c4]
+            valid = True
+            for c in cols:
+                if not (2 <= len(col_positions[c]) <= 4):
+                    valid = False
+                    break
+            if not valid:
+                continue
+
+            rows_union = set()
+            for c in cols:
+                rows_union.update(col_positions[c])
+            if len(rows_union) != 4:
+                continue
+
+            elim = []
+            for r in rows_union:
+                for c in range(9):
+                    if c in cols:
+                        continue
+                    i = r * 9 + c
+                    if not board[i] and v in cand[i]:
+                        elim.append({"i": i, "v": v})
+            if elim:
+                return {"tech": "jellyfish", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_w_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    W-Wing: Two bivalue cells with same candidates, connected by a strong link.
+
+    Pattern: Two cells with candidates {A, B}, where one of them (A) is
+    connected to another cell via a strong link on A. This creates a
+    chain: if cell1 is B, cell2 must be B. So any cell seeing both
+    cell1 and cell2 cannot be B.
+    """
+    bival = [i for i in range(81) if not board[i] and len(cand[i]) == 2]
+
+    # Find strong links: cells where candidate appears exactly twice in a unit
+    strong_links: dict[int, list[tuple[int, int]]] = {}  # candidate -> [(cell1, cell2), ...]
+    for v in range(1, 10):
+        strong_links[v] = []
+        for unit in ALL_UNITS:
+            cells_with_v = [i for i in unit if not board[i] and v in cand[i]]
+            if len(cells_with_v) == 2:
+                strong_links[v].append((cells_with_v[0], cells_with_v[1]))
+
+    for i in range(len(bival)):
+        c1 = bival[i]
+        cands1 = cand[c1]
+
+        for j in range(i + 1, len(bival)):
+            c2 = bival[j]
+            if cand[c2] != cands1:
+                continue
+            # c1 and c2 have same candidates {A, B}
+            if c2 in PEERS[c1]:
+                continue  # They shouldn't see each other for W-Wing
+
+            vals = sorted(cands1)
+            a, b = vals[0], vals[1]
+
+            # Check if there's a strong link on 'a' connecting cells that see c1 and c2
+            for link_a, link_b in strong_links[a]:
+                # Case 1: link connects cells where link_a sees c1 and link_b sees c2
+                if link_a in PEERS[c1] and link_a != c1 and link_b in PEERS[c2] and link_b != c2:
+                    # If c1=B, then link_a=A, then link_b≠A, so c2=B
+                    # Eliminate B from cells seeing both c1 and c2
+                    elim = []
+                    for k in range(81):
+                        if k == c1 or k == c2 or board[k]:
+                            continue
+                        if c1 in PEERS[k] and c2 in PEERS[k] and b in cand[k]:
+                            elim.append({"i": k, "v": b})
+                    if elim:
+                        return {"tech": "wWing", "placements": [], "eliminations": elim}
+
+                # Case 2: link connects cells where link_b sees c1 and link_a sees c2
+                if link_b in PEERS[c1] and link_b != c1 and link_a in PEERS[c2] and link_a != c2:
+                    elim = []
+                    for k in range(81):
+                        if k == c1 or k == c2 or board[k]:
+                            continue
+                        if c1 in PEERS[k] and c2 in PEERS[k] and b in cand[k]:
+                            elim.append({"i": k, "v": b})
+                    if elim:
+                        return {"tech": "wWing", "placements": [], "eliminations": elim}
+
+            # Try with 'b' as the linking candidate
+            for link_a, link_b in strong_links[b]:
+                if link_a in PEERS[c1] and link_a != c1 and link_b in PEERS[c2] and link_b != c2:
+                    elim = []
+                    for k in range(81):
+                        if k == c1 or k == c2 or board[k]:
+                            continue
+                        if c1 in PEERS[k] and c2 in PEERS[k] and a in cand[k]:
+                            elim.append({"i": k, "v": a})
+                    if elim:
+                        return {"tech": "wWing", "placements": [], "eliminations": elim}
+
+                if link_b in PEERS[c1] and link_b != c1 and link_a in PEERS[c2] and link_a != c2:
+                    elim = []
+                    for k in range(81):
+                        if k == c1 or k == c2 or board[k]:
+                            continue
+                        if c1 in PEERS[k] and c2 in PEERS[k] and a in cand[k]:
+                            elim.append({"i": k, "v": a})
+                    if elim:
+                        return {"tech": "wWing", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_skyscraper(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    Skyscraper: Two conjugate pairs for the same candidate, sharing one endpoint.
+
+    When a candidate has exactly 2 positions in two different rows/columns,
+    and these form a pattern where one end of each pair is in the same column/row,
+    the other ends can eliminate that candidate from cells seeing both.
+    """
+    for v in range(1, 10):
+        # Row-based Skyscraper
+        row_pairs: list[tuple[int, int, int]] = []  # (row, col1, col2)
+        for r in range(9):
+            cols = [i % 9 for i in UNIT_ROWS[r] if not board[i] and v in cand[i]]
+            if len(cols) == 2:
+                row_pairs.append((r, cols[0], cols[1]))
+
+        for i in range(len(row_pairs)):
+            r1, c1a, c1b = row_pairs[i]
+            for j in range(i + 1, len(row_pairs)):
+                r2, c2a, c2b = row_pairs[j]
+
+                # Check if they share one column (forming the base)
+                shared = None
+                end1, end2 = None, None
+
+                if c1a == c2a:
+                    shared = c1a
+                    end1, end2 = (r1, c1b), (r2, c2b)
+                elif c1a == c2b:
+                    shared = c1a
+                    end1, end2 = (r1, c1b), (r2, c2a)
+                elif c1b == c2a:
+                    shared = c1b
+                    end1, end2 = (r1, c1a), (r2, c2b)
+                elif c1b == c2b:
+                    shared = c1b
+                    end1, end2 = (r1, c1a), (r2, c2a)
+
+                if shared is None:
+                    continue
+
+                # end1 and end2 are the "roof" cells
+                idx1 = end1[0] * 9 + end1[1]
+                idx2 = end2[0] * 9 + end2[1]
+
+                # Eliminate v from cells that see both roof cells
+                elim = []
+                for k in range(81):
+                    if k == idx1 or k == idx2 or board[k]:
+                        continue
+                    if idx1 in PEERS[k] and idx2 in PEERS[k] and v in cand[k]:
+                        elim.append({"i": k, "v": v})
+
+                if elim:
+                    return {"tech": "skyscraper", "placements": [], "eliminations": elim}
+
+        # Column-based Skyscraper
+        col_pairs: list[tuple[int, int, int]] = []  # (col, row1, row2)
+        for c in range(9):
+            rows = [i // 9 for i in UNIT_COLS[c] if not board[i] and v in cand[i]]
+            if len(rows) == 2:
+                col_pairs.append((c, rows[0], rows[1]))
+
+        for i in range(len(col_pairs)):
+            c1, r1a, r1b = col_pairs[i]
+            for j in range(i + 1, len(col_pairs)):
+                c2, r2a, r2b = col_pairs[j]
+
+                shared = None
+                end1, end2 = None, None
+
+                if r1a == r2a:
+                    shared = r1a
+                    end1, end2 = (r1b, c1), (r2b, c2)
+                elif r1a == r2b:
+                    shared = r1a
+                    end1, end2 = (r1b, c1), (r2a, c2)
+                elif r1b == r2a:
+                    shared = r1b
+                    end1, end2 = (r1a, c1), (r2b, c2)
+                elif r1b == r2b:
+                    shared = r1b
+                    end1, end2 = (r1a, c1), (r2a, c2)
+
+                if shared is None:
+                    continue
+
+                idx1 = end1[0] * 9 + end1[1]
+                idx2 = end2[0] * 9 + end2[1]
+
+                elim = []
+                for k in range(81):
+                    if k == idx1 or k == idx2 or board[k]:
+                        continue
+                    if idx1 in PEERS[k] and idx2 in PEERS[k] and v in cand[k]:
+                        elim.append({"i": k, "v": v})
+
+                if elim:
+                    return {"tech": "skyscraper", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_empty_rectangle(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    Empty Rectangle: Uses a box where a candidate forms an "L" or "+" shape.
+
+    When a candidate in a box is confined to exactly one row and one column
+    (but not in their intersection), and there's a strong link in that row/column
+    outside the box, eliminations can be made.
+    """
+    for v in range(1, 10):
+        for b in range(9):
+            box_cells = UNIT_BOXES[b]
+            cells_with_v = [i for i in box_cells if not board[i] and v in cand[i]]
+
+            if len(cells_with_v) < 2:
+                continue
+
+            rows_in_box = set(i // 9 for i in cells_with_v)
+            cols_in_box = set(i % 9 for i in cells_with_v)
+
+            # For Empty Rectangle, need candidate in multiple rows AND multiple columns
+            if len(rows_in_box) < 2 or len(cols_in_box) < 2:
+                continue
+
+            # Find a row where there's exactly one cell with v in this box
+            for er_row in rows_in_box:
+                row_cells = [i for i in cells_with_v if i // 9 == er_row]
+                if len(row_cells) != 1:
+                    continue
+                er_cell = row_cells[0]
+                er_col = er_cell % 9
+
+                # Look for a strong link in the ER row, outside the box
+                row_outside = [i for i in UNIT_ROWS[er_row] if i not in box_cells and not board[i] and v in cand[i]]
+
+                for link_cell in row_outside:
+                    link_col = link_cell % 9
+                    # Find cells in link_col with v (outside ER row)
+                    col_cells = [i for i in UNIT_COLS[link_col] if i // 9 != er_row and not board[i] and v in cand[i]]
+
+                    if len(col_cells) != 1:
+                        continue
+
+                    target = col_cells[0]
+                    target_row = target // 9
+
+                    # Check if there's another cell in ER column at target_row
+                    check_cell = target_row * 9 + er_col
+                    if board[check_cell] or v not in cand[check_cell]:
+                        continue
+
+                    # Can eliminate v from target if there's strong link logic
+                    # The elimination is at the intersection: target sees link_cell (same col)
+                    # and the ER box provides the constraint
+                    elim = [{"i": target, "v": v}]
+                    return {"tech": "emptyRectangle", "placements": [], "eliminations": elim}
+
+            # Try with columns
+            for er_col in cols_in_box:
+                col_cells = [i for i in cells_with_v if i % 9 == er_col]
+                if len(col_cells) != 1:
+                    continue
+                er_cell = col_cells[0]
+                er_row = er_cell // 9
+
+                col_outside = [i for i in UNIT_COLS[er_col] if i not in box_cells and not board[i] and v in cand[i]]
+
+                for link_cell in col_outside:
+                    link_row = link_cell // 9
+                    row_cells = [i for i in UNIT_ROWS[link_row] if i % 9 != er_col and not board[i] and v in cand[i]]
+
+                    if len(row_cells) != 1:
+                        continue
+
+                    target = row_cells[0]
+                    target_col = target % 9
+
+                    check_cell = er_row * 9 + target_col
+                    if board[check_cell] or v not in cand[check_cell]:
+                        continue
+
+                    elim = [{"i": target, "v": v}]
+                    return {"tech": "emptyRectangle", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_xyz_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    XYZ-Wing: Extension of XY-Wing where pivot has 3 candidates.
+
+    Pivot cell has {X, Y, Z}, two wing cells have {X, Z} and {Y, Z}.
+    All three cells share candidate Z. Any cell seeing all three cannot have Z.
+    """
+    # Find cells with exactly 3 candidates (potential pivots)
+    trival = [i for i in range(81) if not board[i] and len(cand[i]) == 3]
+    bival = [i for i in range(81) if not board[i] and len(cand[i]) == 2]
+
+    for piv in trival:
+        piv_cands = cand[piv]
+        xyz = sorted(piv_cands)
+
+        # Need to find pairs of bivalue cells that together have 2 of the 3 values
+        # and share the third value Z
+        for z in xyz:
+            other = [v for v in xyz if v != z]
+            x, y = other[0], other[1]
+
+            # Wing 1 must have {X, Z} and see pivot
+            # Wing 2 must have {Y, Z} and see pivot
+            wing1_cands = {x, z}
+            wing2_cands = {y, z}
+
+            wing1_cells = [i for i in bival if i in PEERS[piv] and cand[i] == wing1_cands]
+            wing2_cells = [i for i in bival if i in PEERS[piv] and cand[i] == wing2_cands]
+
+            for w1 in wing1_cells:
+                for w2 in wing2_cells:
+                    if w1 == w2:
+                        continue
+
+                    # Z can be eliminated from cells seeing all three (pivot, w1, w2)
+                    elim = []
+                    for i in range(81):
+                        if i == piv or i == w1 or i == w2 or board[i]:
+                            continue
+                        if piv in PEERS[i] and w1 in PEERS[i] and w2 in PEERS[i]:
+                            if z in cand[i]:
+                                elim.append({"i": i, "v": z})
+
+                    if elim:
+                        return {"tech": "xyzWing", "placements": [], "eliminations": elim}
+
+    return None
+
+
+def t_unique_rectangle(board: list[int], cand: list[set[int]]) -> Optional[dict]:
+    """
+    Unique Rectangle: Exploits the fact that valid Sudoku must have unique solution.
+
+    Type 1: Four cells in rectangle (2 rows, 2 columns, 2 boxes) where:
+    - Three cells have exactly {A, B}
+    - Fourth cell has {A, B} plus extra candidates
+    The extra candidates must be true (to avoid deadly pattern).
+
+    Type 2: Four cells where two have {A, B} and two have {A, B, X}:
+    - X can be eliminated from cells outside rectangle that see both +X cells.
+    """
+    bival = [i for i in range(81) if not board[i] and len(cand[i]) == 2]
+
+    # Find potential UR base: pairs of bivalue cells in same row with same candidates
+    for i in range(len(bival)):
+        c1 = bival[i]
+        r1, col1 = c1 // 9, c1 % 9
+        cands = cand[c1]
+
+        for j in range(i + 1, len(bival)):
+            c2 = bival[j]
+            r2, col2 = c2 // 9, c2 % 9
+
+            if cand[c2] != cands:
+                continue
+
+            # Need same row or same column
+            if r1 != r2 and col1 != col2:
+                continue
+
+            if r1 == r2:
+                # Same row - look for completing row
+                for other_row in range(9):
+                    if other_row == r1:
+                        continue
+
+                    c3 = other_row * 9 + col1
+                    c4 = other_row * 9 + col2
+
+                    if board[c3] or board[c4]:
+                        continue
+
+                    # Check box constraint: c1,c2 in one/two boxes, c3,c4 in different boxes
+                    b1, b2 = box_of(r1, col1), box_of(r1, col2)
+                    b3, b4 = box_of(other_row, col1), box_of(other_row, col2)
+
+                    if b1 == b3 and b2 == b4:
+                        continue  # All in same boxes - not a valid UR
+                    if b1 == b3 or b2 == b4:
+                        # At least one pair must span boxes
+                        pass
+
+                    # Type 1: Three have {A,B}, one has {A,B}+extras
+                    type1_found = False
+
+                    if cand[c3] == cands and cands.issubset(cand[c4]) and len(cand[c4]) > 2:
+                        # c4 has extras - eliminate A,B from c4
+                        elim = []
+                        for v in cands:
+                            if v in cand[c4]:
+                                elim.append({"i": c4, "v": v})
+                        if elim:
+                            return {"tech": "uniqueRectangle", "placements": [], "eliminations": elim}
+                        type1_found = True
+
+                    if cand[c4] == cands and cands.issubset(cand[c3]) and len(cand[c3]) > 2:
+                        elim = []
+                        for v in cands:
+                            if v in cand[c3]:
+                                elim.append({"i": c3, "v": v})
+                        if elim:
+                            return {"tech": "uniqueRectangle", "placements": [], "eliminations": elim}
+                        type1_found = True
+
+                    if type1_found:
+                        continue
+
+                    # Type 2: Two opposite corners have same extra candidate
+                    if cands.issubset(cand[c3]) and cands.issubset(cand[c4]):
+                        extra3 = cand[c3] - cands
+                        extra4 = cand[c4] - cands
+
+                        if len(extra3) == 1 and extra3 == extra4:
+                            x = next(iter(extra3))
+                            # Eliminate x from cells seeing both c3 and c4
+                            elim = []
+                            for k in range(81):
+                                if k in (c1, c2, c3, c4) or board[k]:
+                                    continue
+                                if c3 in PEERS[k] and c4 in PEERS[k] and x in cand[k]:
+                                    elim.append({"i": k, "v": x})
+                            if elim:
+                                return {"tech": "uniqueRectangle", "placements": [], "eliminations": elim}
+
+            else:
+                # Same column - look for completing column
+                for other_col in range(9):
+                    if other_col == col1:
+                        continue
+
+                    c3 = r1 * 9 + other_col
+                    c4 = r2 * 9 + other_col
+
+                    if board[c3] or board[c4]:
+                        continue
+
+                    b1, b2 = box_of(r1, col1), box_of(r2, col1)
+                    b3, b4 = box_of(r1, other_col), box_of(r2, other_col)
+
+                    if b1 == b3 and b2 == b4:
+                        continue
+
+                    # Type 1
+                    if cand[c3] == cands and cands.issubset(cand[c4]) and len(cand[c4]) > 2:
+                        elim = []
+                        for v in cands:
+                            if v in cand[c4]:
+                                elim.append({"i": c4, "v": v})
+                        if elim:
+                            return {"tech": "uniqueRectangle", "placements": [], "eliminations": elim}
+
+                    if cand[c4] == cands and cands.issubset(cand[c3]) and len(cand[c3]) > 2:
+                        elim = []
+                        for v in cands:
+                            if v in cand[c3]:
+                                elim.append({"i": c3, "v": v})
+                        if elim:
+                            return {"tech": "uniqueRectangle", "placements": [], "eliminations": elim}
+
+                    # Type 2
+                    if cands.issubset(cand[c3]) and cands.issubset(cand[c4]):
+                        extra3 = cand[c3] - cands
+                        extra4 = cand[c4] - cands
+
+                        if len(extra3) == 1 and extra3 == extra4:
+                            x = next(iter(extra3))
+                            elim = []
+                            for k in range(81):
+                                if k in (c1, c2, c3, c4) or board[k]:
+                                    continue
+                                if c3 in PEERS[k] and c4 in PEERS[k] and x in cand[k]:
+                                    elim.append({"i": k, "v": x})
+                            if elim:
+                                return {"tech": "uniqueRectangle", "placements": [], "eliminations": elim}
+
+    return None
+
+
+# Technique order (in increasing difficulty)
+# Techniques are attempted in this order; solver uses first one that finds eliminations
 ORDER = [
+    # Score 1: Basic singles
     t_full_house,
     t_naked_single,
+    # Score 2: Hidden single
     t_hidden_single,
+    # Score 3: Intersection techniques
     t_pointing,
     t_claiming,
+    # Score 4: Naked subsets
     lambda b, c: t_naked_set(b, c, 2, "nakedPair"),
     lambda b, c: t_naked_set(b, c, 3, "nakedTriple"),
     lambda b, c: t_naked_set(b, c, 4, "nakedQuad"),
+    # Score 5: Hidden subsets
     lambda b, c: t_hidden_set(b, c, 2, "hiddenPair"),
     lambda b, c: t_hidden_set(b, c, 3, "hiddenTriple"),
     lambda b, c: t_hidden_set(b, c, 4, "hiddenQuad"),
+    # Score 6: Basic fish
     t_x_wing,
+    # Score 7: Advanced fish and coloring
+    t_swordfish,
+    t_x_colors,
+    # Score 8: Large fish
+    t_jellyfish,
+    # Score 9: Wings and single-digit patterns
+    t_skyscraper,
     t_xy_wing,
+    t_w_wing,
+    t_empty_rectangle,
+    # Score 10: Advanced wings and uniqueness
+    t_xyz_wing,
+    t_unique_rectangle,
 ]
 
 
@@ -684,11 +1435,30 @@ def analyze(input_val: Union[str, list[int]]) -> dict[str, Any]:
     composite = js_round(max_cost * 2.4 + total * 0.32)
     difficulty = "Easy" if max_tier == 1 else "Medium" if max_tier == 2 else "Hard"
 
-    # Build breakdown in specific order
+    # Build breakdown in specific order (by increasing score/difficulty)
     breakdown_order = [
-        "fullHouse", "nakedSingle", "hiddenSingle", "pointing", "claiming",
-        "nakedPair", "nakedTriple", "nakedQuad", "hiddenPair", "hiddenTriple",
-        "hiddenQuad", "xWing", "xyWing", "backtrack"
+        # Score 1
+        "fullHouse", "nakedSingle",
+        # Score 2
+        "hiddenSingle",
+        # Score 3
+        "pointing", "claiming",
+        # Score 4
+        "nakedPair", "nakedTriple", "nakedQuad",
+        # Score 5
+        "hiddenPair", "hiddenTriple", "hiddenQuad",
+        # Score 6
+        "xWing",
+        # Score 7
+        "swordfish", "xColors",
+        # Score 8
+        "jellyfish",
+        # Score 9
+        "skyscraper", "xyWing", "wWing", "emptyRectangle",
+        # Score 10
+        "xyzWing", "uniqueRectangle",
+        # Out of scope
+        "backtrack"
     ]
     breakdown = []
     for k in breakdown_order:
