@@ -197,7 +197,6 @@ function RepositoryPage({ repo }) {
   const [diffFilter, setDiffFilter] = useState("");
   const [sort, setSort] = useState({ col: "id", dir: "asc" });
   const [selected, setSelected] = useState(null);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   // Difficulty options adapt to the chosen publisher (else union of all).
   const diffOptions = useMemo(() => {
