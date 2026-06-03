@@ -357,27 +357,31 @@ function RepositoryPage({ repo }) {
         </Card>
       ) : (
         <div className="space-y-5">
-          {/* priority chart — full width */}
+          {/* Chart 1: Publisher comparison box plot — full width */}
           <Card>
-            <CardHead title="Publisher comparison" sub="Measured difficulty score distribution per publisher (highest priority)" icon={<Icon.chart />} />
+            <CardHead title="Publisher comparison" sub="Measured difficulty score distribution per publisher" icon={<Icon.chart />} />
             <div className="p-4"><BoxPlot rows={filtered} publishers={D.SUBMIT_PUBLISHERS} /></div>
           </Card>
 
-          {/* extensible placeholder slots */}
+          {/* Chart 2 & 3: Scatter plot and Accuracy bar */}
           <div className="grid gap-5 lg:grid-cols-2">
-            <PlaceholderPanel
-              title="Publisher consistency"
-              sub="Within-publisher variance"
-              purpose="FUTURE: evaluate how consistently each publisher rates puzzles of similar measured difficulty."
-            />
-            <PlaceholderPanel
-              title="Cluster analysis"
-              sub="Publisher grouping patterns"
-              purpose="FUTURE: group publishers by shared mis-classification signatures across the corpus."
-            />
+            <Card>
+              <CardHead title="Claimed vs measured" sub="Score agreement scatter plot (1-10 scale)" icon={<Icon.chart />} />
+              <div className="p-4"><ScatterPlot rows={filtered} /></div>
+            </Card>
+            <Card>
+              <CardHead title="Publisher accuracy ranking" sub="Percentage of exact matches by publisher" icon={<Icon.chart />} />
+              <div className="p-4"><AccuracyBar rows={filtered} publishers={D.SUBMIT_PUBLISHERS} /></div>
+            </Card>
           </div>
 
-          {/* additional visualization area — expandable */}
+          {/* Chart 4: Heatmap — full width */}
+          <Card>
+            <CardHead title="Publisher × difficulty heatmap" sub="Average mismatch by publisher and claimed difficulty level" icon={<Icon.chart />} />
+            <div className="p-4"><Heatmap rows={filtered} publishers={D.SUBMIT_PUBLISHERS} /></div>
+          </Card>
+
+          {/* Additional visualizations — expandable */}
           <Card>
             <button
               onClick={() => setMoreOpen((v) => !v)}
@@ -386,8 +390,8 @@ function RepositoryPage({ repo }) {
               <div className="flex items-center gap-2.5">
                 <span className="text-slate-400 dark:text-slate-500"><Icon.chart /></span>
                 <div>
-                  <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">Additional visualizations</h3>
-                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Reserved area for future statistical charts</p>
+                  <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">Additional statistics</h3>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Detailed correlation and distribution metrics</p>
                 </div>
               </div>
               <span className={`text-slate-400 transition-transform ${moreOpen ? "rotate-180" : ""}`}>
@@ -395,15 +399,29 @@ function RepositoryPage({ repo }) {
               </span>
             </button>
             {moreOpen ? (
-              <div className="grid gap-3 border-t border-slate-100 p-4 dark:border-slate-800 sm:grid-cols-2 lg:grid-cols-3">
-                {["Scatter plot", "Correlation analysis", "Residual analysis", "Heat map", "Distribution charts"].map((t) => (
-                  <div key={t} className="grid h-24 place-items-center rounded-lg border border-dashed border-slate-300 text-center dark:border-slate-700" style={stripeBg}>
-                    <div>
-                      <div className="font-mono text-[11px] font-medium text-slate-500 dark:text-slate-400">{t}</div>
-                      <div className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-slate-400">Planned</div>
-                    </div>
+              <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Pearson correlation</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-slate-800 dark:text-white">{stats.pearson.toFixed(3)}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">claimed vs measured</div>
                   </div>
-                ))}
+                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Mean measured</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-slate-800 dark:text-white">{stats.meanMeasured.toFixed(2)}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">average score</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Underrated</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-amber-600 dark:text-amber-400">{stats.under}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">harder than claimed</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Overrated</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-sky-600 dark:text-sky-400">{stats.over}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">easier than claimed</div>
+                  </div>
+                </div>
               </div>
             ) : null}
           </Card>
