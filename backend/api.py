@@ -1,14 +1,15 @@
-"""FastAPI backend for Sudoku Difficulty Validator.
+"""FastAPI backend for Sudoku Research Platform.
 
-This module provides REST API endpoints that replace the JavaScript
-solver.js and data.js functionality, enabling the frontend to use
-the Python implementation instead.
+This module provides REST API endpoints for the Sudoku Difficulty Validator,
+including user identification, puzzle submission, and analytics.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, Union, Any
+from typing import Optional, Union
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 import uvicorn
 
 from solver import (
@@ -21,6 +22,10 @@ from analyzer import (
     diffs_for, claimed_score, verdict, tech_for_score,
     analytics
 )
+from database import get_db, init_db, User, Puzzle
+
+# Analytics unlock threshold
+MIN_FOR_ANALYTICS = 5
 
 # ---- FastAPI App Setup ----
 
