@@ -390,21 +390,26 @@ function Heatmap({ rows, publishers }) {
         </text>
       ))}
       {/* Column labels (difficulties) - rotated for readability */}
-      {orderedDiffs.map((d, i) => (
-        <text key={d} x={m.l + i * cellW + cellW / 2} y={H - m.b + 14} textAnchor="start" className={`${labelText} font-mono`} fontSize="8"
-              transform={`rotate(-35 ${m.l + i * cellW + cellW / 2} ${H - m.b + 14})`}>
-          {d}
-        </text>
-      ))}
+      {orderedDiffs.map((d, i) => {
+        const labelX = m.l + i * cellW + cellW / 2;
+        const labelY = H - m.b + 14;
+        const rotateOriginX = labelX + 20;
+        return (
+          <text key={d} x={labelX} y={labelY} textAnchor="start" className={`${labelText} font-mono`} fontSize="5"
+                transform={`rotate(-35 ${rotateOriginX} ${labelY})`}>
+            {d}
+          </text>
+        );
+      })}
       {/* Legend */}
-      <g transform={`translate(${W - m.r - 150}, ${H - 20})`}>
+      <g transform={`translate(${W / 2 - 40}, ${H - 20})`}>
         <text x="0" y="0" className={`${tickText} font-mono`} fontSize="8">Mismatch:</text>
         <rect x="52" y="-8" width="14" height="10" rx="2" fill={PALETTE.indiaGreen} fillOpacity="0.75" />
-        <text x="70" y="0" className={`${tickText} font-mono`} fontSize="7">+under</text>
-        <rect x="95" y="-8" width="14" height="10" rx="2" fill={PALETTE.pearlAqua} fillOpacity="0.75" />
-        <text x="113" y="0" className={`${tickText} font-mono`} fontSize="7">≈0</text>
-        <rect x="130" y="-8" width="14" height="10" rx="2" fill={PALETTE.frozenWater} fillOpacity="0.75" />
-        <text x="148" y="0" className={`${tickText} font-mono`} fontSize="7">-over</text>
+        <text x="68" y="0" className={`${tickText} font-mono`} fontSize="7">+under</text>
+        <rect x="105" y="-8" width="14" height="10" rx="2" fill={PALETTE.pearlAqua} fillOpacity="0.75" />
+        <text x="120" y="0" className={`${tickText} font-mono`} fontSize="7">≈0</text>
+        <rect x="140" y="-8" width="14" height="10" rx="2" fill={PALETTE.frozenWater} fillOpacity="0.75" />
+        <text x="155" y="0" className={`${tickText} font-mono`} fontSize="7">-over</text>
       </g>
     </svg>
   );
