@@ -44,10 +44,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Temporary in-memory repository (will be replaced with database) ----
-# Start empty - all data comes from user submissions
-repository: list[dict] = []
-next_id = 1043
+# Initialize database on startup
+@app.on_event("startup")
+def startup():
+    init_db()
 
 
 # ---- Pydantic Models ----
@@ -191,73 +191,137 @@ async def api_solve(input_data: BoardInput):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/repository")
-async def api_get_repository():
-    """
-    Get all puzzles in the repository.
+# ---- User Identification Endpoints ----
 
-    Returns seed data plus any user-submitted puzzles.
+class UserIdentifyInput(BaseModel):
+    """Input model for user identification."""
+    email: str
+
+
+@app.post("/api/user/identify")
+async def identify_user(input_data: UserIdentifyInput, db: Session = Depends(get_db)):
     """
-    return {"puzzles": repository}
+    Create or retrieve user by email.
+
+    Simple email-based identification - no password required.
+    Returns user info and puzzle count for analytics unlock check.
+    """
+    email = input_data.email.lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email required")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(email=email)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    puzzle_count = db.query(Puzzle).filter(Puzzle.user_id == user.id).count()
+    return {
+        "userId": user.id,
+        "email": user.email,
+        "puzzleCount": puzzle_count,
+        "analyticsUnlocked": puzzle_count >= MIN_FOR_ANALYTICS
+    }
+
+
+@app.get("/api/repository")
+async def api_get_repository(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get user's puzzles from the repository.
+
+    Returns only puzzles belonging to the specified user.
+    """
+    puzzles = db.query(Puzzle).filter(Puzzle.user_id == user_id)\
+        .order_by(Puzzle.created_at.desc()).all()
+    return {"puzzles": [p.to_dict() for p in puzzles]}
 
 
 @app.post("/api/submit-puzzle")
-async def api_submit_puzzle(input_data: SubmitPuzzleInput):
+async def api_submit_puzzle(
+    input_data: SubmitPuzzleInput,
+    user_id: int,
+    db: Session = Depends(get_db)
+):
     """
-    Submit a new puzzle to the repository.
+    Submit a new puzzle to the repository for a specific user.
     """
-    global next_id
+    # Check for duplicate grid for this user
+    existing = db.query(Puzzle).filter(
+        Puzzle.user_id == user_id,
+        Puzzle.grid == input_data.grid
+    ).first()
+    if existing:
+        return {"success": False, "error": "duplicate", "existingId": existing.puzzle_id}
 
-    new_record = {
-        "id": f"SDK-{next_id:04d}",
-        "publisher": input_data.publisher,
-        "publisherShort": SUBMIT_PUBLISHER_SHORT.get(input_data.publisher, input_data.publisher),
-        "claimed": input_data.claimed,
-        "claimedScore": claimed_score(input_data.publisher, input_data.claimed),
-        "measuredScore": input_data.measuredScore,
-        "mismatch": input_data.mismatch,
-        "verdict": input_data.verdict,
-        "tech": input_data.tech,
-        "clues": input_data.clues,
-        "grid": input_data.grid,
-        "date": input_data.date,
-        "ts": input_data.date,
-        "source": "user",
+    # Generate new puzzle ID
+    max_id = db.query(func.max(Puzzle.id)).scalar() or 0
+    puzzle_id = f"SDK-{1042 + max_id + 1:04d}"
+
+    # Create puzzle record
+    puzzle = Puzzle(
+        puzzle_id=puzzle_id,
+        user_id=user_id,
+        grid=input_data.grid,
+        clues=input_data.clues,
+        publisher=input_data.publisher,
+        publisher_short=SUBMIT_PUBLISHER_SHORT.get(input_data.publisher, input_data.publisher),
+        claimed_difficulty=input_data.claimed,
+        claimed_score=claimed_score(input_data.publisher, input_data.claimed) or 0,
+        measured_score=input_data.measuredScore,
+        mismatch=input_data.mismatch,
+        verdict=input_data.verdict,
+        hardest_technique=input_data.tech,
+        composite_score=input_data.composite,
+        difficulty_tier=input_data.difficulty,
+    )
+    db.add(puzzle)
+    db.commit()
+
+    # Get updated puzzle count for analytics unlock
+    count = db.query(Puzzle).filter(Puzzle.user_id == user_id).count()
+
+    return {
+        "id": puzzle_id,
+        "success": True,
+        "puzzleCount": count,
+        "analyticsUnlocked": count >= MIN_FOR_ANALYTICS
     }
-
-    # Add optional fields if provided
-    if input_data.hardestTech:
-        new_record["hardestTech"] = input_data.hardestTech
-    if input_data.composite:
-        new_record["composite"] = input_data.composite
-    if input_data.difficulty:
-        new_record["difficulty"] = input_data.difficulty
-
-    repository.append(new_record)
-    next_id += 1
-
-    return {"id": new_record["id"], "success": True}
 
 
 @app.get("/api/analytics")
 async def api_get_analytics(
+    user_id: int,
     publisher: Optional[str] = None,
-    difficulty: Optional[str] = None
+    difficulty: Optional[str] = None,
+    db: Session = Depends(get_db)
 ):
     """
-    Get analytics computed on the repository.
+    Get analytics computed on the user's repository.
 
-    Replaces SudokuData.analytics().
+    Returns locked status if user has fewer than MIN_FOR_ANALYTICS puzzles.
     Optionally filter by publisher and/or difficulty.
     """
-    filtered = repository
+    query = db.query(Puzzle).filter(Puzzle.user_id == user_id)
 
     if publisher:
-        filtered = [r for r in filtered if r.get("publisher") == publisher]
+        query = query.filter(Puzzle.publisher == publisher)
     if difficulty:
-        filtered = [r for r in filtered if r.get("claimed") == difficulty]
+        query = query.filter(Puzzle.claimed_difficulty == difficulty)
 
-    if not filtered:
+    puzzles = query.all()
+
+    # Check if analytics are unlocked
+    total_count = db.query(Puzzle).filter(Puzzle.user_id == user_id).count()
+    if total_count < MIN_FOR_ANALYTICS:
+        return {
+            "locked": True,
+            "count": total_count,
+            "required": MIN_FOR_ANALYTICS
+        }
+
+    if not puzzles:
         return {
             "pearson": 0,
             "agreement": 0,
@@ -270,7 +334,7 @@ async def api_get_analytics(
             "n": 0
         }
 
-    result = analytics(filtered)
+    result = analytics([p.to_dict() for p in puzzles])
     return result
 
 
