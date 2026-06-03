@@ -191,6 +191,7 @@ function DetailModal({ record, onClose }) {
 // ---- Page ------------------------------------------------------------------
 function RepositoryPage({ repo }) {
   const D = window.SudokuData;
+  const { user, analyticsUnlocked, puzzleCount } = useUser();
   const [query, setQuery] = useState("");
   const [pubFilter, setPubFilter] = useState("");
   const [diffFilter, setDiffFilter] = useState("");
@@ -240,7 +241,7 @@ function RepositoryPage({ repo }) {
   }, [repo, query, pubFilter, diffFilter, sort]);
 
   const stats = useMemo(() => D.analytics(filtered), [filtered]);
-  const analyticsUnlocked = repo.length >= MIN_FOR_ANALYTICS;
+  // Use user context for analytics unlock (based on total saved puzzles, not just filtered)
 
   const exportCSV = () => {
     const head = ["Puzzle ID", "Publisher", "Claimed Difficulty", "Claimed Score", "Measured Score", "Mismatch", "Verdict", "Hardest Technique", "Clues", "Date"];
@@ -345,9 +346,14 @@ function RepositoryPage({ repo }) {
           </div>
           <h3 className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Analytics locked</h3>
           <p className="mt-1.5 max-w-sm text-sm text-slate-500 dark:text-slate-400">
-            Analytics will become available after at least {MIN_FOR_ANALYTICS} puzzles have been analyzed and saved.
+            Save {MIN_FOR_ANALYTICS - puzzleCount} more puzzle{MIN_FOR_ANALYTICS - puzzleCount !== 1 ? 's' : ''} to unlock analytics dashboards.
           </p>
-          <div className="mt-3 font-mono text-[11px] text-slate-400">{repo.length} / {MIN_FOR_ANALYTICS} saved</div>
+          <div className="mt-4 flex items-center gap-3">
+            <div className="h-2 w-32 rounded-full bg-slate-200 dark:bg-slate-700">
+              <div className="h-2 rounded-full bg-accent-500 transition-all" style={{ width: `${Math.min(100, (puzzleCount / MIN_FOR_ANALYTICS) * 100)}%` }}></div>
+            </div>
+            <span className="font-mono text-[11px] text-slate-400">{puzzleCount} / {MIN_FOR_ANALYTICS}</span>
+          </div>
         </Card>
       ) : (
         <div className="space-y-5">
