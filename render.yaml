@@ -1,4 +1,5 @@
 services:
+  # Backend API (Python/FastAPI)
   - type: web
     name: sudoku-api
     env: python
@@ -10,3 +11,18 @@ services:
         sync: false  # Set manually in Render dashboard with Supabase URL
       - key: PYTHON_VERSION
         value: "3.11"
+
+  # Frontend (Static Site)
+  - type: web
+    name: sudoku-frontend
+    env: static
+    staticPublishPath: frontend
+    buildCommand: echo "No build needed"
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=3600
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /Sudoku Difficulty Validator.html
