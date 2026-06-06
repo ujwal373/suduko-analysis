@@ -7,8 +7,8 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn api:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: postgresql://postgres:ujwalakshita@db.rqmfuglpqaelkxqifnxt.supabase.co:5432/postgres
-        sync: false  # Set manually in Render dashboard with Supabase URL
+      - key: DATABASE_URL
+        sync: false  # Set manually in Render dashboard
       - key: PYTHON_VERSION
         value: "3.11"
 
@@ -22,7 +22,3 @@ services:
       - path: /*
         name: Cache-Control
         value: public, max-age=3600
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /Sudoku Difficulty Validator.html
