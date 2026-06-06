@@ -605,6 +605,9 @@ def t_x_colors(board: list[int], cand: list[set[int]]) -> Optional[dict]:
     Elimination rules:
     1. If two cells with the same color see each other, that color is false.
     2. If an uncolored cell sees both colors, it can be eliminated.
+
+    IMPORTANT: Each connected component (chain) must be processed independently.
+    Cells from different chains should never be compared.
     """
     for v in range(1, 10):
         # Build graph of conjugate pairs for candidate v
@@ -623,72 +626,71 @@ def t_x_colors(board: list[int], cand: list[set[int]]) -> Optional[dict]:
         # Build adjacency list
         adj: dict[int, list[int]] = {}
         for c1, c2 in conj_pairs:
-            if c1 not in adj:
-                adj[c1] = []
-            if c2 not in adj:
-                adj[c2] = []
-            if c2 not in adj[c1]:
-                adj[c1].append(c2)
-            if c1 not in adj[c2]:
-                adj[c2].append(c1)
+            adj.setdefault(c1, []).append(c2)
+            adj.setdefault(c2, []).append(c1)
 
-        # Color the graph using BFS
-        color: dict[int, int] = {}
+        # Process each connected component (chain) separately
+        visited: set[int] = set()
+
         for start in adj:
-            if start in color:
+            if start in visited:
                 continue
-            # BFS coloring
+
+            # BFS to color THIS chain only
+            chain_color: dict[int, int] = {}
             queue = [start]
-            color[start] = 0
+            chain_color[start] = 0
+
             while queue:
                 node = queue.pop(0)
-                node_color = color[node]
+                visited.add(node)
                 for neighbor in adj.get(node, []):
-                    if neighbor not in color:
-                        color[neighbor] = 1 - node_color
+                    if neighbor not in chain_color:
+                        chain_color[neighbor] = 1 - chain_color[node]
                         queue.append(neighbor)
 
-        if len(color) < 2:
-            continue
-
-        # Collect cells by color
-        color0 = [c for c, col in color.items() if col == 0]
-        color1 = [c for c, col in color.items() if col == 1]
-
-        # Rule 1: Check if same-color cells see each other (contradiction)
-        def has_contradiction(cells: list[int]) -> bool:
-            for i in range(len(cells)):
-                for j in range(i + 1, len(cells)):
-                    if cells[j] in PEERS[cells[i]]:
-                        return True
-            return False
-
-        elim = []
-        if has_contradiction(color0):
-            # Color 0 is false, eliminate v from all color0 cells
-            for c in color0:
-                if v in cand[c]:
-                    elim.append({"i": c, "v": v})
-        elif has_contradiction(color1):
-            # Color 1 is false, eliminate v from all color1 cells
-            for c in color1:
-                if v in cand[c]:
-                    elim.append({"i": c, "v": v})
-
-        if elim:
-            return {"tech": "xColors", "placements": [], "eliminations": elim}
-
-        # Rule 2: Uncolored cell sees both colors
-        for i in range(81):
-            if board[i] or i in color or v not in cand[i]:
+            if len(chain_color) < 2:
                 continue
-            sees_color0 = any(c in PEERS[i] for c in color0)
-            sees_color1 = any(c in PEERS[i] for c in color1)
-            if sees_color0 and sees_color1:
-                elim.append({"i": i, "v": v})
 
-        if elim:
-            return {"tech": "xColors", "placements": [], "eliminations": elim}
+            # Collect cells by color for THIS chain only
+            chain_color0 = [c for c, col in chain_color.items() if col == 0]
+            chain_color1 = [c for c, col in chain_color.items() if col == 1]
+
+            # Rule 1: Check if same-color cells see each other (contradiction)
+            # Only check within THIS chain
+            def has_contradiction(cells: list[int]) -> bool:
+                for i in range(len(cells)):
+                    for j in range(i + 1, len(cells)):
+                        if cells[j] in PEERS[cells[i]]:
+                            return True
+                return False
+
+            elim = []
+            if has_contradiction(chain_color0):
+                # Color 0 is false, eliminate v from all color0 cells in this chain
+                for c in chain_color0:
+                    if v in cand[c]:
+                        elim.append({"i": c, "v": v})
+            elif has_contradiction(chain_color1):
+                # Color 1 is false, eliminate v from all color1 cells in this chain
+                for c in chain_color1:
+                    if v in cand[c]:
+                        elim.append({"i": c, "v": v})
+
+            if elim:
+                return {"tech": "xColors", "placements": [], "eliminations": elim}
+
+            # Rule 2: Uncolored cell sees both colors of THIS chain
+            for i in range(81):
+                if board[i] or i in chain_color or v not in cand[i]:
+                    continue
+                sees_color0 = any(c in PEERS[i] for c in chain_color0)
+                sees_color1 = any(c in PEERS[i] for c in chain_color1)
+                if sees_color0 and sees_color1:
+                    elim.append({"i": i, "v": v})
+
+            if elim:
+                return {"tech": "xColors", "placements": [], "eliminations": elim}
 
     return None
 
@@ -808,8 +810,12 @@ def t_w_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
 
             # Check if there's a strong link on 'a' connecting cells that see c1 and c2
             for link_a, link_b in strong_links[a]:
+                # Strong-link cells must not be any of the bivalue cells
+                if link_a in (c1, c2) or link_b in (c1, c2):
+                    continue
+
                 # Case 1: link connects cells where link_a sees c1 and link_b sees c2
-                if link_a in PEERS[c1] and link_a != c1 and link_b in PEERS[c2] and link_b != c2:
+                if link_a in PEERS[c1] and link_b in PEERS[c2]:
                     # If c1=B, then link_a=A, then link_b≠A, so c2=B
                     # Eliminate B from cells seeing both c1 and c2
                     elim = []
@@ -822,7 +828,7 @@ def t_w_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
                         return {"tech": "wWing", "placements": [], "eliminations": elim}
 
                 # Case 2: link connects cells where link_b sees c1 and link_a sees c2
-                if link_b in PEERS[c1] and link_b != c1 and link_a in PEERS[c2] and link_a != c2:
+                if link_b in PEERS[c1] and link_a in PEERS[c2]:
                     elim = []
                     for k in range(81):
                         if k == c1 or k == c2 or board[k]:
@@ -834,7 +840,11 @@ def t_w_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
 
             # Try with 'b' as the linking candidate
             for link_a, link_b in strong_links[b]:
-                if link_a in PEERS[c1] and link_a != c1 and link_b in PEERS[c2] and link_b != c2:
+                # Strong-link cells must not be any of the bivalue cells
+                if link_a in (c1, c2) or link_b in (c1, c2):
+                    continue
+
+                if link_a in PEERS[c1] and link_b in PEERS[c2]:
                     elim = []
                     for k in range(81):
                         if k == c1 or k == c2 or board[k]:
@@ -844,7 +854,7 @@ def t_w_wing(board: list[int], cand: list[set[int]]) -> Optional[dict]:
                     if elim:
                         return {"tech": "wWing", "placements": [], "eliminations": elim}
 
-                if link_b in PEERS[c1] and link_b != c1 and link_a in PEERS[c2] and link_a != c2:
+                if link_b in PEERS[c1] and link_a in PEERS[c2]:
                     elim = []
                     for k in range(81):
                         if k == c1 or k == c2 or board[k]:
@@ -996,8 +1006,15 @@ def t_empty_rectangle(board: list[int], cand: list[set[int]]) -> Optional[dict]:
 
                 for link_cell in row_outside:
                     link_col = link_cell % 9
-                    # Find cells in link_col with v (outside ER row)
-                    col_cells = [i for i in UNIT_COLS[link_col] if i // 9 != er_row and not board[i] and v in cand[i]]
+
+                    # Verify link_cell is part of a conjugate pair in its column
+                    # (v must appear exactly twice in the column for a strong link)
+                    cells_in_link_col = [i for i in UNIT_COLS[link_col] if not board[i] and v in cand[i]]
+                    if len(cells_in_link_col) != 2:
+                        continue  # Not a genuine strong link
+
+                    # Find the other cell in the conjugate pair (outside ER row)
+                    col_cells = [i for i in cells_in_link_col if i != link_cell]
 
                     if len(col_cells) != 1:
                         continue
@@ -1028,7 +1045,15 @@ def t_empty_rectangle(board: list[int], cand: list[set[int]]) -> Optional[dict]:
 
                 for link_cell in col_outside:
                     link_row = link_cell // 9
-                    row_cells = [i for i in UNIT_ROWS[link_row] if i % 9 != er_col and not board[i] and v in cand[i]]
+
+                    # Verify link_cell is part of a conjugate pair in its row
+                    # (v must appear exactly twice in the row for a strong link)
+                    cells_in_link_row = [i for i in UNIT_ROWS[link_row] if not board[i] and v in cand[i]]
+                    if len(cells_in_link_row) != 2:
+                        continue  # Not a genuine strong link
+
+                    # Find the other cell in the conjugate pair (outside ER col)
+                    row_cells = [i for i in cells_in_link_row if i != link_cell]
 
                     if len(row_cells) != 1:
                         continue
@@ -1138,15 +1163,12 @@ def t_unique_rectangle(board: list[int], cand: list[set[int]]) -> Optional[dict]
                     if board[c3] or board[c4]:
                         continue
 
-                    # Check box constraint: c1,c2 in one/two boxes, c3,c4 in different boxes
+                    # Check box constraint: UR must span exactly 2 boxes
                     b1, b2 = box_of(r1, col1), box_of(r1, col2)
                     b3, b4 = box_of(other_row, col1), box_of(other_row, col2)
 
-                    if b1 == b3 and b2 == b4:
-                        continue  # All in same boxes - not a valid UR
-                    if b1 == b3 or b2 == b4:
-                        # At least one pair must span boxes
-                        pass
+                    if len({b1, b2, b3, b4}) != 2:
+                        continue  # UR must span exactly 2 boxes
 
                     # Type 1: Three have {A,B}, one has {A,B}+extras
                     type1_found = False
@@ -1202,11 +1224,12 @@ def t_unique_rectangle(board: list[int], cand: list[set[int]]) -> Optional[dict]
                     if board[c3] or board[c4]:
                         continue
 
+                    # Check box constraint: UR must span exactly 2 boxes
                     b1, b2 = box_of(r1, col1), box_of(r2, col1)
                     b3, b4 = box_of(r1, other_col), box_of(r2, other_col)
 
-                    if b1 == b3 and b2 == b4:
-                        continue
+                    if len({b1, b2, b3, b4}) != 2:
+                        continue  # UR must span exactly 2 boxes
 
                     # Type 1
                     if cand[c3] == cands and cands.issubset(cand[c4]) and len(cand[c4]) > 2:
