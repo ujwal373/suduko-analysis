@@ -19,10 +19,19 @@ if DATABASE_URL.startswith("postgres://"):
 
 # Create engine with appropriate settings
 # SQLite needs check_same_thread=False for FastAPI's async context
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
-)
+# PostgreSQL (Supabase) requires SSL
+if "sqlite" in DATABASE_URL:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False}
+    )
+else:
+    # PostgreSQL with SSL for Supabase
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"sslmode": "require"},
+        pool_pre_ping=True  # Handle connection drops
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
