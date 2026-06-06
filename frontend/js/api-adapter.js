@@ -13,7 +13,7 @@
   // For production: Update with your Render URL after deployment
   const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://localhost:8000"
-    : "https://sudoku-api.onrender.com";  // TODO: Replace with your actual Render URL
+    : "https://suduko-analysis.onrender.com";  // TODO: Replace with your actual Render URL
 
   // Cache for constants (loaded once)
   let constantsCache = null;

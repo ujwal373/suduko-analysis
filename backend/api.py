@@ -43,7 +43,7 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "http://localhost:8080",
     # Add your Render frontend URL below after deployment:
-    "https://sudoku-frontend.onrender.com",
+    "https://suduko-analysis-1.onrender.com",
     # If you use a different name, update it here
 ]
 
