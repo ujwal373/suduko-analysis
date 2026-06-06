@@ -258,7 +258,7 @@ function ScatterPlot({ rows }) {
       ))}
       {/* Diagonal agreement line */}
       <line x1={x(1)} y1={y(1)} x2={x(10)} y2={y(10)} stroke={PALETTE.pearlAqua} strokeWidth="2" strokeDasharray="6 4" opacity="0.7" />
-      <text x={x(8) + 12} y={y(8) - 8} fill={PALETTE.brightFern} className="font-mono" fontSize="8">perfect agreement</text>
+      <text x="409" y="20" fill={PALETTE.brightFern} className="font-mono" fontSize="8">perfect agreement</text>
       {/* Points */}
       {Object.entries(cells).map(([key, n]) => {
         const [cl, me] = key.split("|").map(Number);
@@ -282,7 +282,7 @@ function ScatterPlot({ rows }) {
       <text x={m.l + iw / 2} y={H - 6} textAnchor="middle" className={`${labelText} font-mono`} fontSize="10" letterSpacing="0.5">CLAIMED SCORE</text>
       <text x={14} y={m.t + ih / 2} textAnchor="middle" transform={`rotate(-90 14 ${m.t + ih / 2})`} className={`${labelText} font-mono`} fontSize="10" letterSpacing="0.5">MEASURED SCORE</text>
       {/* Legend */}
-      <g transform={`translate(${W - m.r - 90}, ${m.t})`}>
+      <g transform="translate(450, 90)">
         <rect x="-4" y="-4" width="86" height="58" rx="4" className="fill-white/80 dark:fill-slate-900/80" />
         <circle cx="6" cy="8" r="5" fill={PALETTE.lightGreen} fillOpacity="0.4" stroke={PALETTE.lightGreen} strokeWidth="1" />
         <text x="18" y="11" className={`${tickText} font-mono`} fontSize="8">Accurate</text>
