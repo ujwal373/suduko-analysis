@@ -87,15 +87,49 @@ The platform implements a comprehensive set of Sudoku solving techniques organiz
 
 ## Supported Publishers
 
-The platform includes difficulty mappings for major Sudoku publishers:
+The platform uses **range-based validation** instead of single-point scores. A puzzle is considered **Accurate** if its measured score falls within the expected range. For puzzles outside the range, mismatch is calculated from the midpoint.
 
-| Publisher | Difficulty Levels | Score Mapping |
-|-----------|------------------|---------------|
-| **The New York Times** | Easy, Medium, Hard | 2, 4, 6 |
-| **Sudoku.com** | Easy, Medium, Hard, Expert, Master, Extreme | 2, 4, 5, 7, 8, 9 |
-| **The Guardian** | Easy, Medium, Hard, Expert | 2, 4, 7, 9 |
-| **Times Sudoku** | Easy, Mild, Moderate, Difficult, Fiendish, Super Fiendish | 1, 2, 4, 6, 9, 10 |
-| **Others** | Easy, Medium, Hard | 2, 4, 6 |
+### The New York Times (NYT)
+| Label | Claimed Range | Midpoint |
+|-------|---------------|----------|
+| Easy | 1–3 | 2 |
+| Medium | 4–6 | 5 |
+| Hard | 7–10 | 8 |
+
+### Sudoku.com
+| Label | Claimed Range | Midpoint |
+|-------|---------------|----------|
+| Easy | 1–2 | 1.5 |
+| Medium | 3–4 | 3.5 |
+| Hard | 5 | 5 |
+| Expert | 6–7 | 6.5 |
+| Master | 8 | 8 |
+| Extreme | 9–10 | 9.5 |
+
+### The Guardian
+| Label | Claimed Range | Midpoint |
+|-------|---------------|----------|
+| Easy | 1–3 | 2 |
+| Medium | 4–5 | 4.5 |
+| Hard | 6–7 | 6.5 |
+| Expert | 8–10 | 9 |
+
+### Times Sudoku
+| Label | Claimed Range | Midpoint |
+|-------|---------------|----------|
+| Easy | 1 | 1 |
+| Mild | 2 | 2 |
+| Moderate | 3–4 | 3.5 |
+| Difficult | 5–6 | 5.5 |
+| Fiendish | 7–9 | 8 |
+| Super Fiendish | 10 | 10 |
+
+### Others
+| Label | Claimed Range | Midpoint |
+|-------|---------------|----------|
+| Easy | 1–3 | 2 |
+| Medium | 4–6 | 5 |
+| Hard | 7–10 | 8 |
 
 ---
 
@@ -325,31 +359,44 @@ Puzzles are scored on a **1-10 scale** based on the **hardest logical technique*
 - **Score 9-10**: Expert wings and uniqueness constraints
 - **Out-of-Scope**: Requires guessing or advanced chaining
 
-### Verdict Calculation
+### Range-Based Verdict Calculation
 
-The platform compares measured scores against publisher claims:
+The platform uses **range-based validation** instead of single-point comparisons. Each publisher's difficulty level maps to an expected score range (e.g., NYT Easy = 1–3).
 
-```
-mismatch = measured_score - claimed_score
-```
+**Validation Logic:**
+- If measured score falls **within the range** → `mismatch = 0`, verdict = **Accurate**
+- If measured score is **outside the range** → `mismatch = measured_score - midpoint` (rounded to 1 decimal)
+
+The midpoint is used for mismatch calculation because it is the most neutral representation of what the publisher intended.
+
+**Example Calculations:**
+
+| Puzzle | Label | Range | Midpoint | Measured | In Range? | Mismatch | Verdict |
+|--------|-------|-------|----------|----------|-----------|----------|---------|
+| P001 | Easy (NYT) | 1–3 | 2 | 1 | Yes | 0 | Accurate |
+| P002 | Easy (NYT) | 1–3 | 2 | 5 | No | +3.0 | Significantly Underrated |
+| P003 | Hard (NYT) | 7–10 | 8 | 6 | No | -2.0 | Moderately Overrated |
+| P004 | Medium (NYT) | 4–6 | 5 | 4 | Yes | 0 | Accurate |
+
+**Verdict Thresholds:**
 
 | Mismatch | Verdict | Meaning |
 |----------|---------|---------|
-| 0 | **Accurate** | Perfect match |
-| +1 | **Slightly Underrated** | Harder than claimed |
-| +2 | **Moderately Underrated** | Significantly harder |
+| 0 | **Accurate** | Measured score within claimed range |
+| +1 to +1.9 | **Slightly Underrated** | Harder than claimed |
+| +2 to +2.9 | **Moderately Underrated** | Significantly harder |
 | ≥ +3 | **Significantly Underrated** | Much harder than claimed |
-| -1 | **Slightly Overrated** | Easier than claimed |
-| -2 | **Moderately Overrated** | Significantly easier |
+| -1 to -1.9 | **Slightly Overrated** | Easier than claimed |
+| -2 to -2.9 | **Moderately Overrated** | Significantly easier |
 | ≤ -3 | **Significantly Overrated** | Much easier than claimed |
 
 ### Statistical Analytics
 
-**Pearson Correlation**: Measures linear correlation between claimed and measured scores across all user puzzles (-1 to +1 scale).
+**Pearson Correlation**: Measures linear correlation between claimed midpoint and measured scores across all user puzzles (-1 to +1 scale).
 
-**Publisher Leaderboard**: Ranks publishers by accuracy percentage, showing tendency to under-rate or over-rate difficulty.
+**Publisher Leaderboard**: Ranks publishers by accuracy percentage (puzzles within claimed range), showing tendency to under-rate or over-rate difficulty.
 
-**Agreement Rate**: Percentage of puzzles where mismatch = 0 (perfect agreement).
+**Agreement Rate**: Percentage of puzzles where measured score falls within the claimed range (mismatch = 0).
 
 ---
 
