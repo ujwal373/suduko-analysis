@@ -37,32 +37,74 @@
     "Others":       ["Easy", "Medium", "Hard"],
   };
 
-  // Fixed conversion of each publisher's label to a numeric claimed score.
-  // These mappings are constant throughout the application.
-  const CLAIMED_SCORE = {
-    "NYT":          { Easy: 2, Medium: 4, Hard: 6 },
-    "Sudoku.com":   { Easy: 2, Medium: 4, Hard: 5, Expert: 7, Master: 8, Extreme: 9 },
-    "The Guardian": { Easy: 2, Medium: 4, Hard: 7, Expert: 9 },
-    "Times Sudoku": { Easy: 1, Mild: 2, Moderate: 4, Difficult: 6, Fiendish: 9, "Super Fiendish": 10 },
-    "Others":       { Easy: 2, Medium: 4, Hard: 6 },
+  // Range-based difficulty validation: [low, high, midpoint] arrays.
+  // A puzzle is "Accurate" if measured score falls within the range.
+  // Mismatch is calculated from midpoint only when outside the range.
+  const CLAIMED_RANGES = {
+    "NYT": {
+      Easy: [1, 3, 2],
+      Medium: [4, 6, 5],
+      Hard: [7, 10, 8],
+    },
+    "Sudoku.com": {
+      Easy: [1, 2, 1.5],
+      Medium: [3, 4, 3.5],
+      Hard: [5, 5, 5],
+      Expert: [6, 7, 6.5],
+      Master: [8, 8, 8],
+      Extreme: [9, 10, 9.5],
+    },
+    "The Guardian": {
+      Easy: [1, 3, 2],
+      Medium: [4, 5, 4.5],
+      Hard: [6, 7, 6.5],
+      Expert: [8, 10, 9],
+    },
+    "Times Sudoku": {
+      Easy: [1, 1, 1],
+      Mild: [2, 2, 2],
+      Moderate: [3, 4, 3.5],
+      Difficult: [5, 6, 5.5],
+      Fiendish: [7, 9, 8],
+      "Super Fiendish": [10, 10, 10],
+    },
+    "Others": {
+      Easy: [1, 3, 2],
+      Medium: [4, 6, 5],
+      Hard: [7, 10, 8],
+    },
   };
 
   function diffsFor(publisher) { return DIFF_BY_PUBLISHER[publisher] || []; }
-  function claimedScore(publisher, label) {
-    const m = CLAIMED_SCORE[publisher];
+
+  function claimedRange(publisher, label) {
+    const m = CLAIMED_RANGES[publisher];
     return m && m[label] != null ? m[label] : null;
   }
 
-  // Mismatch = Measured Score − Claimed Score. Positive => publisher
-  // under-rated the puzzle (it is harder than claimed); negative => over-rated.
+  function isInRange(measured, rangeLow, rangeHigh) {
+    return measured >= rangeLow && measured <= rangeHigh;
+  }
+
+  function calculateMismatch(measured, rangeLow, rangeHigh, midpoint) {
+    if (isInRange(measured, rangeLow, rangeHigh)) {
+      return 0;
+    }
+    return Math.round((measured - midpoint) * 10) / 10; // Round to 1 decimal
+  }
+
+  // Mismatch = 0 when measured is within claimed range.
+  // When outside range: Mismatch = Measured Score − Midpoint.
+  // Positive => publisher under-rated (harder than claimed); negative => over-rated.
   function verdict(mismatch) {
-    if (mismatch === 0)  return "Accurate";
-    if (mismatch === 1)  return "Slightly Underrated";
-    if (mismatch === 2)  return "Moderately Underrated";
-    if (mismatch >= 3)   return "Significantly Underrated";
-    if (mismatch === -1) return "Slightly Overrated";
-    if (mismatch === -2) return "Moderately Overrated";
-    return "Significantly Overrated"; // -3 or less
+    if (mismatch === 0) return "Accurate";
+    if (mismatch >= 3) return "Significantly Underrated";
+    if (mismatch >= 2) return "Moderately Underrated";
+    if (mismatch >= 1) return "Slightly Underrated";
+    if (mismatch <= -3) return "Significantly Overrated";
+    if (mismatch <= -2) return "Moderately Overrated";
+    if (mismatch <= -1) return "Slightly Overrated";
+    return "Accurate"; // -1 < mismatch < 1
   }
 
   // Reference copy of the technique-tier scale used by the engine (display).
@@ -143,10 +185,12 @@
       // Pick the publisher's claimed label, then derive measured score from it.
       const labels = DIFF_BY_PUBLISHER[publisher];
       const claimed = pick(labels);
-      const cScore = claimedScore(publisher, claimed);
+      const range = claimedRange(publisher, claimed);
+      const [rangeLow, rangeHigh, midpoint] = range;
       const drift = prof.bias + (rnd() - 0.5) * 2 * prof.noise;
-      const measuredScore = clamp(Math.round(cScore + drift), 1, 10);
-      const mismatch = measuredScore - cScore;
+      const measuredScore = clamp(Math.round(midpoint + drift), 1, 10);
+      const inRange = isInRange(measuredScore, rangeLow, rangeHigh);
+      const mismatch = calculateMismatch(measuredScore, rangeLow, rangeHigh, midpoint);
       const tech = techForScore(measuredScore, rnd);
       const clues = clamp(38 - measuredScore - Math.floor(rnd() * 3), 22, 36);
       const d = new Date(2026, 0, 1 + Math.floor(rnd() * 150));
@@ -156,7 +200,10 @@
         publisher,
         publisherShort: SUBMIT_PUBLISHER_SHORT[publisher],
         claimed,
-        claimedScore: cScore,
+        claimedRangeLow: rangeLow,
+        claimedRangeHigh: rangeHigh,
+        claimedMidpoint: midpoint,
+        inRange,
         measuredScore,
         mismatch,
         verdict: verdict(mismatch),
@@ -186,24 +233,30 @@
     return dx && dy ? num / Math.sqrt(dx * dy) : 0;
   }
 
-  // Analytics over the Technique-Tier model. mismatch = measured − claimed:
+  // Analytics over the range-based validation model.
+  // mismatch = 0 when in range, otherwise measured − midpoint.
   // positive => under-rated by publisher, negative => over-rated.
   function analytics(rows) {
     const n = rows.length;
-    const r = pearson(rows.map((x) => x.claimedScore), rows.map((x) => x.measuredScore));
-    const accurate = rows.filter((x) => x.mismatch === 0).length;
+    // Use midpoint for correlation (fall back to claimedScore for compatibility)
+    const r = pearson(
+      rows.map((x) => x.claimedMidpoint || x.claimedScore || 0),
+      rows.map((x) => x.measuredScore)
+    );
+    // Use tolerance for float comparison
+    const accurate = rows.filter((x) => Math.abs(x.mismatch) < 0.001).length;
     const agreement = n ? accurate / n : 0;
-    const over = rows.filter((x) => x.mismatch < 0).length;
-    const under = rows.filter((x) => x.mismatch > 0).length;
+    const over = rows.filter((x) => x.mismatch < -0.001).length;
+    const under = rows.filter((x) => x.mismatch > 0.001).length;
     const meanMeasured = n ? rows.reduce((a, b) => a + b.measuredScore, 0) / n : 0;
     const meanAbsMismatch = n ? rows.reduce((a, b) => a + Math.abs(b.mismatch), 0) / n : 0;
 
     const byPub = {};
     rows.forEach((x) => { (byPub[x.publisher] = byPub[x.publisher] || []).push(x); });
     const leaderboard = Object.entries(byPub).map(([pub, list]) => {
-      const acc = list.filter((x) => x.mismatch === 0).length / list.length;
-      const o = list.filter((x) => x.mismatch < 0).length;
-      const u = list.filter((x) => x.mismatch > 0).length;
+      const acc = list.filter((x) => Math.abs(x.mismatch) < 0.001).length / list.length;
+      const o = list.filter((x) => x.mismatch < -0.001).length;
+      const u = list.filter((x) => x.mismatch > 0.001).length;
       const meanMis = list.reduce((a, b) => a + b.mismatch, 0) / list.length;
       return {
         publisher: pub,
@@ -221,8 +274,8 @@
 
   window.SudokuData = {
     PUBLISHERS, PUBLISHER_SHORT, DIFFS, REPO, generate, analytics, pearson, DIFF_IDX,
-    // Submit-page + Repository (Phase 1/2) system
-    SUBMIT_PUBLISHERS, SUBMIT_PUBLISHER_SHORT, DIFF_BY_PUBLISHER, CLAIMED_SCORE,
-    TECHNIQUE_SCALE, GRID_POOL, diffsFor, claimedScore, verdict, techForScore,
+    // Submit-page + Repository (Phase 1/2) system - Range-based validation
+    SUBMIT_PUBLISHERS, SUBMIT_PUBLISHER_SHORT, DIFF_BY_PUBLISHER, CLAIMED_RANGES,
+    TECHNIQUE_SCALE, GRID_POOL, diffsFor, claimedRange, isInRange, calculateMismatch, verdict, techForScore,
   };
 })();

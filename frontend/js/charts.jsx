@@ -230,21 +230,23 @@ function ScatterPlot({ rows }) {
   const x = (v) => m.l + ((v - 1) / (maxScore - 1)) * iw;
   const y = (v) => m.t + ih - ((v - 1) / (maxScore - 1)) * ih;
 
-  // Aggregate counts per (claimedScore, measuredScore) cell
+  // Aggregate counts per (claimedMidpoint, measuredScore) cell
+  // Use midpoint for positioning, fall back to claimedScore for compatibility
   const cells = {};
   filteredRows.forEach((r) => {
-    const key = `${r.claimedScore}|${r.measuredScore}`;
+    const claimedVal = r.claimedMidpoint || r.claimedScore || 0;
+    const key = `${claimedVal}|${r.measuredScore}`;
     cells[key] = (cells[key] || 0) + 1;
   });
   const maxC = Math.max(1, ...Object.values(cells));
 
   const ticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-  // Mismatch colors using palette
+  // Mismatch colors using palette (with float tolerance)
   const getMismatchColor = (mismatch) => {
-    if (mismatch === 0) return PALETTE.lightGreen;      // Accurate
-    if (mismatch > 0) return PALETTE.indiaGreen;         // Underrated (harder than claimed)
-    return PALETTE.frozenWater;                          // Overrated (easier than claimed)
+    if (Math.abs(mismatch) < 0.001) return PALETTE.lightGreen;  // Accurate
+    if (mismatch > 0) return PALETTE.indiaGreen;                 // Underrated (harder than claimed)
+    return PALETTE.frozenWater;                                  // Overrated (easier than claimed)
   };
 
   return (
@@ -320,7 +322,8 @@ function Heatmap({ rows, publishers }) {
     orderedDiffs.forEach((d) => {
       const matches = rows.filter((r) => r.publisher === p && r.claimed === d);
       if (matches.length > 0) {
-        const accurate = matches.filter((r) => r.mismatch === 0).length;
+        // Use float tolerance for accuracy calculation
+        const accurate = matches.filter((r) => Math.abs(r.mismatch) < 0.001).length;
         matrix[p][d] = {
           n: matches.length,
           avgMismatch: matches.reduce((a, b) => a + b.mismatch, 0) / matches.length,
@@ -424,11 +427,11 @@ function AccuracyBar({ rows, publishers }) {
   // Filter to primary publishers only
   const filteredPubs = publishers.filter(p => PRIMARY_PUBLISHERS.includes(p));
 
-  // Calculate accuracy per publisher
+  // Calculate accuracy per publisher (using float tolerance)
   const pubStats = filteredPubs.map((p) => {
     const matches = rows.filter((r) => r.publisher === p);
     if (matches.length === 0) return null;
-    const accurate = matches.filter((r) => r.mismatch === 0).length;
+    const accurate = matches.filter((r) => Math.abs(r.mismatch) < 0.001).length;
     return {
       publisher: p,
       short: D.SUBMIT_PUBLISHER_SHORT[p] || p,

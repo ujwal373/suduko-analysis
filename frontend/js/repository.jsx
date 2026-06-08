@@ -1,15 +1,18 @@
 /* Page 2 — Repository table + detail view + modular analytics dashboard.
-   Exports RepositoryPage. Operates on the Technique-Tier record model:
-   { id, publisher, publisherShort, claimed, claimedScore, measuredScore,
-     mismatch, verdict, tech, clues, grid, date, ts, source }.            */
+   Exports RepositoryPage. Operates on the range-based record model:
+   { id, publisher, publisherShort, claimed, claimedRangeLow, claimedRangeHigh,
+     claimedMidpoint, inRange, measuredScore, mismatch, verdict, tech, clues,
+     grid, date, ts, source }.                                               */
 
 const MIN_FOR_ANALYTICS = 5;
 
 // ---- Verdict / mismatch presentation --------------------------------------
-// mismatch = measured − claimed.  >0 under-rated, <0 over-rated, 0 accurate.
+// mismatch = 0 when in range, otherwise measured − midpoint.
+// >0 under-rated, <0 over-rated, 0 accurate.
 function verdictMeta(mismatch) {
   const sig = Math.abs(mismatch) >= 3;
-  if (mismatch === 0)
+  // Use tolerance for float comparison
+  if (Math.abs(mismatch) < 0.001)
     return { tone: "accurate", sig: false, badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/30 dark:bg-emerald-500/10 dark:text-emerald-300", num: "text-emerald-600 dark:text-emerald-400", dot: "#059669" };
   if (mismatch > 0)
     return { tone: "under", sig, badge: "bg-amber-50 text-amber-700 ring-amber-600/30 dark:bg-amber-500/10 dark:text-amber-300", num: "text-amber-600 dark:text-amber-400", dot: "#d97706" };
@@ -29,7 +32,7 @@ function VerdictBadge({ verdict, mismatch, size = "sm" }) {
 
 function MismatchCell({ mismatch, align = "right" }) {
   const m = verdictMeta(mismatch);
-  const txt = mismatch > 0 ? `+${mismatch}` : `${mismatch}`;
+  const txt = mismatch > 0 ? `+${mismatch.toFixed(1)}` : mismatch.toFixed(1);
   return (
     <span className={`inline-flex items-center justify-${align === "right" ? "end" : "start"} font-mono tabular-nums ${m.num} ${m.sig ? "font-bold" : "font-medium"}`}>
       {txt}{m.sig ? <span className="ml-1 text-[9px]">{mismatch > 0 ? "▲▲" : "▼▼"}</span> : null}
@@ -167,8 +170,12 @@ function DetailModal({ record, onClose }) {
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               <DetailRow label="Publisher">{record.publisher}</DetailRow>
               <DetailRow label="Claimed difficulty">{record.claimed}</DetailRow>
-              <DetailRow label="Claimed score"><span className="font-mono tabular-nums">{record.claimedScore}</span></DetailRow>
+              <DetailRow label="Claimed range"><span className="font-mono tabular-nums">{record.claimedRangeLow}–{record.claimedRangeHigh}</span></DetailRow>
+              <DetailRow label="Range midpoint"><span className="font-mono tabular-nums">{record.claimedMidpoint}</span></DetailRow>
               <DetailRow label="Measured score"><span className="font-mono tabular-nums">{record.measuredScore}</span></DetailRow>
+              <DetailRow label="In range">
+                {record.inRange ? <span className="text-emerald-600 font-medium">Yes</span> : <span className="text-amber-600 font-medium">No</span>}
+              </DetailRow>
               <DetailRow label="Hardest technique">{record.tech}</DetailRow>
               <DetailRow label="Saved"><span className="font-mono text-xs text-slate-500">{(record.ts || record.date || "").slice(0, 16).replace("T", " ")}</span></DetailRow>
             </div>
@@ -227,9 +234,10 @@ function RepositoryPage({ repo }) {
       let av, bv;
       switch (sort.col) {
         case "publisher": av = a.publisher; bv = b.publisher; break;
-        case "claimed": av = a.claimedScore; bv = b.claimedScore; break;
-        case "claimedScore": av = a.claimedScore; bv = b.claimedScore; break;
+        case "claimed": av = a.claimedMidpoint || a.claimedScore; bv = b.claimedMidpoint || b.claimedScore; break;
+        case "range": av = a.claimedMidpoint || a.claimedScore; bv = b.claimedMidpoint || b.claimedScore; break;
         case "measuredScore": av = a.measuredScore; bv = b.measuredScore; break;
+        case "inRange": av = a.inRange ? 1 : 0; bv = b.inRange ? 1 : 0; break;
         case "mismatch": case "verdict": av = a.mismatch; bv = b.mismatch; break;
         case "tech": av = a.tech; bv = b.tech; break;
         default: av = a.id; bv = b.id;
@@ -243,9 +251,9 @@ function RepositoryPage({ repo }) {
   // Use user context for analytics unlock (based on total saved puzzles, not just filtered)
 
   const exportCSV = () => {
-    const head = ["Puzzle ID", "Publisher", "Claimed Difficulty", "Claimed Score", "Measured Score", "Mismatch", "Verdict", "Hardest Technique", "Clues", "Date"];
+    const head = ["Puzzle ID", "Publisher", "Claimed Difficulty", "Range Low", "Range High", "Midpoint", "Measured Score", "In Range", "Mismatch", "Verdict", "Hardest Technique", "Clues", "Date"];
     const lines = [head.join(",")].concat(filtered.map((r) =>
-      [r.id, `"${r.publisher}"`, r.claimed, r.claimedScore, r.measuredScore, r.mismatch, `"${r.verdict}"`, `"${r.tech}"`, r.clues, r.date].join(",")
+      [r.id, `"${r.publisher}"`, r.claimed, r.claimedRangeLow, r.claimedRangeHigh, r.claimedMidpoint, r.measuredScore, r.inRange ? "Yes" : "No", r.mismatch, `"${r.verdict}"`, `"${r.tech}"`, r.clues, r.date].join(",")
     ));
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -292,8 +300,9 @@ function RepositoryPage({ repo }) {
                 <SortHead col="id" sort={sort} setSort={setSort}>Puzzle ID</SortHead>
                 <SortHead col="publisher" sort={sort} setSort={setSort}>Publisher</SortHead>
                 <SortHead col="claimed" sort={sort} setSort={setSort}>Claimed</SortHead>
-                <SortHead col="claimedScore" sort={sort} setSort={setSort} align="right">Claim</SortHead>
+                <SortHead col="range" sort={sort} setSort={setSort}>Range</SortHead>
                 <SortHead col="measuredScore" sort={sort} setSort={setSort} align="right">Measured</SortHead>
+                <SortHead col="inRange" sort={sort} setSort={setSort}>In Range</SortHead>
                 <SortHead col="mismatch" sort={sort} setSort={setSort} align="right">Mismatch</SortHead>
                 <SortHead col="verdict" sort={sort} setSort={setSort}>Verdict</SortHead>
                 <SortHead col="tech" sort={sort} setSort={setSort}>Hardest technique</SortHead>
@@ -312,15 +321,18 @@ function RepositoryPage({ repo }) {
                     {r.source === "user" ? <span className="ml-1.5 font-mono text-[10px] text-accent-500">·new</span> : null}
                   </td>
                   <td className="px-3.5 py-2.5 text-slate-600 dark:text-slate-300">{r.claimed}</td>
-                  <td className="px-3.5 py-2.5 text-right font-mono tnum text-slate-500 dark:text-slate-400">{r.claimedScore}</td>
+                  <td className="px-3.5 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{r.claimedRangeLow}–{r.claimedRangeHigh}</td>
                   <td className="px-3.5 py-2.5 text-right font-mono tnum font-semibold text-slate-800 dark:text-slate-100">{r.measuredScore}</td>
+                  <td className="px-3.5 py-2.5">
+                    {r.inRange ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span> : <span className="text-amber-600 dark:text-amber-400">No</span>}
+                  </td>
                   <td className="px-3.5 py-2.5 text-right"><MismatchCell mismatch={r.mismatch} /></td>
                   <td className="px-3.5 py-2.5"><VerdictBadge verdict={r.verdict} mismatch={r.mismatch} /></td>
                   <td className="px-3.5 py-2.5 text-slate-600 dark:text-slate-300">{r.tech}</td>
                 </tr>
               ))}
               {filtered.length === 0 ? (
-                <tr><td colSpan="8" className="px-3.5 py-12 text-center text-sm text-slate-400">No puzzles match these filters.</td></tr>
+                <tr><td colSpan="9" className="px-3.5 py-12 text-center text-sm text-slate-400">No puzzles match these filters.</td></tr>
               ) : null}
             </tbody>
           </table>

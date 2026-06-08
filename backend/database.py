@@ -4,7 +4,7 @@ This module provides the database layer for the Sudoku Research Platform,
 supporting SQLite for local development and PostgreSQL for production.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, func
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -69,15 +69,15 @@ class Puzzle(Base):
     grid = Column(Text, nullable=False)  # 81-character string
     clues = Column(Integer, nullable=False)
 
-    # Publisher claim
+    # Publisher claim (range fields computed on-the-fly from CLAIMED_RANGES)
     publisher = Column(String(100), nullable=False, index=True)
     publisher_short = Column(String(20), nullable=False)
     claimed_difficulty = Column(String(50), nullable=False)
-    claimed_score = Column(Integer, nullable=False)
+    claimed_score = Column(Integer, nullable=False)  # Stores midpoint for DB compatibility
 
     # Measured results
     measured_score = Column(Integer, nullable=False)
-    mismatch = Column(Integer, nullable=False)
+    mismatch = Column(Integer, nullable=False)  # Stored as int, displayed as float
     verdict = Column(String(50), nullable=False)
     hardest_technique = Column(String(100), nullable=False)
 
@@ -96,15 +96,33 @@ class Puzzle(Base):
         return f"<Puzzle(id={self.puzzle_id}, publisher={self.publisher}, measured={self.measured_score})>"
 
     def to_dict(self) -> dict:
-        """Convert puzzle to dictionary for API responses."""
+        """Convert puzzle to dictionary for API responses.
+
+        Range fields (claimedRangeLow, claimedRangeHigh, claimedMidpoint, inRange)
+        are computed on-the-fly from CLAIMED_RANGES using publisher + claimed_difficulty.
+        """
+        from analyzer import claimed_range, is_in_range
+
+        # Compute range fields from publisher + claimed_difficulty
+        rng = claimed_range(self.publisher, self.claimed_difficulty)
+        if rng:
+            range_low, range_high, midpoint = rng
+            in_range_val = is_in_range(self.measured_score, range_low, range_high)
+        else:
+            range_low, range_high, midpoint = None, None, None
+            in_range_val = False
+
         return {
             "id": self.puzzle_id,
             "publisher": self.publisher,
             "publisherShort": self.publisher_short,
             "claimed": self.claimed_difficulty,
-            "claimedScore": self.claimed_score,
+            "claimedRangeLow": range_low,
+            "claimedRangeHigh": range_high,
+            "claimedMidpoint": midpoint,
+            "inRange": in_range_val,
             "measuredScore": self.measured_score,
-            "mismatch": self.mismatch,
+            "mismatch": float(self.mismatch) if self.mismatch is not None else 0.0,
             "verdict": self.verdict,
             "tech": self.hardest_technique,
             "clues": self.clues,
@@ -114,6 +132,7 @@ class Puzzle(Base):
             "composite": self.composite_score,
             "difficulty": self.difficulty_tier,
             "outOfScope": self.out_of_scope,
+            "source": "user",
         }
 
 

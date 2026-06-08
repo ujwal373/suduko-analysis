@@ -175,12 +175,40 @@
       "Others": ["Easy", "Medium", "Hard"],
     },
 
-    CLAIMED_SCORE: {
-      "NYT": { Easy: 2, Medium: 4, Hard: 6 },
-      "Sudoku.com": { Easy: 2, Medium: 4, Hard: 5, Expert: 7, Master: 8, Extreme: 9 },
-      "The Guardian": { Easy: 2, Medium: 4, Hard: 7, Expert: 9 },
-      "Times Sudoku": { Easy: 1, Mild: 2, Moderate: 4, Difficult: 6, Fiendish: 9, "Super Fiendish": 10 },
-      "Others": { Easy: 2, Medium: 4, Hard: 6 },
+    // Range-based difficulty validation: [low, high, midpoint] arrays
+    CLAIMED_RANGES: {
+      "NYT": {
+        Easy: [1, 3, 2],
+        Medium: [4, 6, 5],
+        Hard: [7, 10, 8],
+      },
+      "Sudoku.com": {
+        Easy: [1, 2, 1.5],
+        Medium: [3, 4, 3.5],
+        Hard: [5, 5, 5],
+        Expert: [6, 7, 6.5],
+        Master: [8, 8, 8],
+        Extreme: [9, 10, 9.5],
+      },
+      "The Guardian": {
+        Easy: [1, 3, 2],
+        Medium: [4, 5, 4.5],
+        Hard: [6, 7, 6.5],
+        Expert: [8, 10, 9],
+      },
+      "Times Sudoku": {
+        Easy: [1, 1, 1],
+        Mild: [2, 2, 2],
+        Moderate: [3, 4, 3.5],
+        Difficult: [5, 6, 5.5],
+        Fiendish: [7, 9, 8],
+        "Super Fiendish": [10, 10, 10],
+      },
+      "Others": {
+        Easy: [1, 3, 2],
+        Medium: [4, 6, 5],
+        Hard: [7, 10, 8],
+      },
     },
 
     TECHNIQUE_SCALE: [
@@ -210,19 +238,31 @@
       return SudokuData.DIFF_BY_PUBLISHER[publisher] || [];
     },
 
-    claimedScore: function (publisher, label) {
-      const m = SudokuData.CLAIMED_SCORE[publisher];
+    claimedRange: function (publisher, label) {
+      const m = SudokuData.CLAIMED_RANGES[publisher];
       return m && m[label] != null ? m[label] : null;
+    },
+
+    isInRange: function (measured, rangeLow, rangeHigh) {
+      return measured >= rangeLow && measured <= rangeHigh;
+    },
+
+    calculateMismatch: function (measured, rangeLow, rangeHigh, midpoint) {
+      if (SudokuData.isInRange(measured, rangeLow, rangeHigh)) {
+        return 0;
+      }
+      return Math.round((measured - midpoint) * 10) / 10;
     },
 
     verdict: function (mismatch) {
       if (mismatch === 0) return "Accurate";
-      if (mismatch === 1) return "Slightly Underrated";
-      if (mismatch === 2) return "Moderately Underrated";
       if (mismatch >= 3) return "Significantly Underrated";
-      if (mismatch === -1) return "Slightly Overrated";
-      if (mismatch === -2) return "Moderately Overrated";
-      return "Significantly Overrated";
+      if (mismatch >= 2) return "Moderately Underrated";
+      if (mismatch >= 1) return "Slightly Underrated";
+      if (mismatch <= -3) return "Significantly Overrated";
+      if (mismatch <= -2) return "Moderately Overrated";
+      if (mismatch <= -1) return "Slightly Overrated";
+      return "Accurate"; // -1 < mismatch < 1
     },
 
     techForScore: function (score) {
@@ -231,13 +271,13 @@
       return matches[0].name;
     },
 
-    // Analytics - computed client-side (can also be fetched from backend)
+    // Analytics - computed client-side using range-based validation
     analytics: function (rows) {
       const n = rows.length;
       if (n < 2) return { pearson: 0, agreement: 0, accurate: 0, over: 0, under: 0, meanMeasured: 0, meanAbsMismatch: 0, leaderboard: [], n: 0 };
 
-      // Pearson correlation
-      const xs = rows.map((x) => x.claimedScore);
+      // Pearson correlation using midpoint (fall back to claimedScore for compatibility)
+      const xs = rows.map((x) => x.claimedMidpoint || x.claimedScore || 0);
       const ys = rows.map((x) => x.measuredScore);
       const mx = xs.reduce((a, b) => a + b, 0) / n;
       const my = ys.reduce((a, b) => a + b, 0) / n;
@@ -248,10 +288,11 @@
       }
       const r = dx && dy ? num / Math.sqrt(dx * dy) : 0;
 
-      const accurate = rows.filter((x) => x.mismatch === 0).length;
+      // Use tolerance for float comparison
+      const accurate = rows.filter((x) => Math.abs(x.mismatch) < 0.001).length;
       const agreement = n ? accurate / n : 0;
-      const over = rows.filter((x) => x.mismatch < 0).length;
-      const under = rows.filter((x) => x.mismatch > 0).length;
+      const over = rows.filter((x) => x.mismatch < -0.001).length;
+      const under = rows.filter((x) => x.mismatch > 0.001).length;
       const meanMeasured = n ? rows.reduce((a, b) => a + b.measuredScore, 0) / n : 0;
       const meanAbsMismatch = n ? rows.reduce((a, b) => a + Math.abs(b.mismatch), 0) / n : 0;
 
@@ -259,9 +300,9 @@
       const byPub = {};
       rows.forEach((x) => { (byPub[x.publisher] = byPub[x.publisher] || []).push(x); });
       const leaderboard = Object.entries(byPub).map(([pub, list]) => {
-        const acc = list.filter((x) => x.mismatch === 0).length / list.length;
-        const o = list.filter((x) => x.mismatch < 0).length;
-        const u = list.filter((x) => x.mismatch > 0).length;
+        const acc = list.filter((x) => Math.abs(x.mismatch) < 0.001).length / list.length;
+        const o = list.filter((x) => x.mismatch < -0.001).length;
+        const u = list.filter((x) => x.mismatch > 0.001).length;
         const meanMis = list.reduce((a, b) => a + b.mismatch, 0) / list.length;
         return {
           publisher: pub,

@@ -1,6 +1,7 @@
 """Tests for analyzer.py - Publisher data and analytics.
 
 These tests verify behavioral equivalence with the JavaScript implementation.
+Updated for range-based validation methodology.
 """
 
 import pytest
@@ -13,9 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from analyzer import (
     PUBLISHERS, PUBLISHER_SHORT, DIFFS,
     SUBMIT_PUBLISHERS, SUBMIT_PUBLISHER_SHORT,
-    DIFF_BY_PUBLISHER, CLAIMED_SCORE,
+    DIFF_BY_PUBLISHER, CLAIMED_RANGES,
     TECHNIQUE_SCALE, TECH_BY_TIER, SCORE_RANGE, PROFILE, GRID_POOL, REPO,
-    diffs_for, claimed_score, verdict, tech_for_score,
+    diffs_for, claimed_range, is_in_range, calculate_mismatch, verdict, tech_for_score,
     mulberry32, generate, pearson, analytics
 )
 
@@ -76,30 +77,39 @@ class TestDifficultyMappings:
         ]
 
 
-class TestClaimedScores:
-    """Test claimed score mappings."""
+class TestClaimedRanges:
+    """Test claimed range mappings (low, high, midpoint)."""
 
-    def test_claimed_score_nyt(self):
-        """Test NYT claimed scores."""
-        assert CLAIMED_SCORE["NYT"]["Easy"] == 2
-        assert CLAIMED_SCORE["NYT"]["Medium"] == 4
-        assert CLAIMED_SCORE["NYT"]["Hard"] == 6
+    def test_claimed_ranges_nyt(self):
+        """Test NYT claimed ranges."""
+        assert CLAIMED_RANGES["NYT"]["Easy"] == (1, 3, 2)
+        assert CLAIMED_RANGES["NYT"]["Medium"] == (4, 6, 5)
+        assert CLAIMED_RANGES["NYT"]["Hard"] == (7, 10, 8)
 
-    def test_claimed_score_sudoku_com(self):
-        """Test Sudoku.com claimed scores."""
-        assert CLAIMED_SCORE["Sudoku.com"]["Easy"] == 2
-        assert CLAIMED_SCORE["Sudoku.com"]["Medium"] == 4
-        assert CLAIMED_SCORE["Sudoku.com"]["Hard"] == 5
-        assert CLAIMED_SCORE["Sudoku.com"]["Expert"] == 7
-        assert CLAIMED_SCORE["Sudoku.com"]["Master"] == 8
-        assert CLAIMED_SCORE["Sudoku.com"]["Extreme"] == 9
+    def test_claimed_ranges_sudoku_com(self):
+        """Test Sudoku.com claimed ranges."""
+        assert CLAIMED_RANGES["Sudoku.com"]["Easy"] == (1, 2, 1.5)
+        assert CLAIMED_RANGES["Sudoku.com"]["Medium"] == (3, 4, 3.5)
+        assert CLAIMED_RANGES["Sudoku.com"]["Hard"] == (5, 5, 5)
+        assert CLAIMED_RANGES["Sudoku.com"]["Expert"] == (6, 7, 6.5)
+        assert CLAIMED_RANGES["Sudoku.com"]["Master"] == (8, 8, 8)
+        assert CLAIMED_RANGES["Sudoku.com"]["Extreme"] == (9, 10, 9.5)
 
-    def test_claimed_score_times(self):
-        """Test Times Sudoku claimed scores."""
-        assert CLAIMED_SCORE["Times Sudoku"]["Easy"] == 1
-        assert CLAIMED_SCORE["Times Sudoku"]["Mild"] == 2
-        assert CLAIMED_SCORE["Times Sudoku"]["Fiendish"] == 9
-        assert CLAIMED_SCORE["Times Sudoku"]["Super Fiendish"] == 10
+    def test_claimed_ranges_guardian(self):
+        """Test The Guardian claimed ranges."""
+        assert CLAIMED_RANGES["The Guardian"]["Easy"] == (1, 3, 2)
+        assert CLAIMED_RANGES["The Guardian"]["Medium"] == (4, 5, 4.5)
+        assert CLAIMED_RANGES["The Guardian"]["Hard"] == (6, 7, 6.5)
+        assert CLAIMED_RANGES["The Guardian"]["Expert"] == (8, 10, 9)
+
+    def test_claimed_ranges_times(self):
+        """Test Times Sudoku claimed ranges."""
+        assert CLAIMED_RANGES["Times Sudoku"]["Easy"] == (1, 1, 1)
+        assert CLAIMED_RANGES["Times Sudoku"]["Mild"] == (2, 2, 2)
+        assert CLAIMED_RANGES["Times Sudoku"]["Moderate"] == (3, 4, 3.5)
+        assert CLAIMED_RANGES["Times Sudoku"]["Difficult"] == (5, 6, 5.5)
+        assert CLAIMED_RANGES["Times Sudoku"]["Fiendish"] == (7, 9, 8)
+        assert CLAIMED_RANGES["Times Sudoku"]["Super Fiendish"] == (10, 10, 10)
 
 
 class TestHelperFunctions:
@@ -116,38 +126,82 @@ class TestHelperFunctions:
         """Test diffs_for with invalid publisher returns empty list."""
         assert diffs_for("Unknown") == []
 
-    def test_claimed_score_valid(self):
-        """Test claimed_score with valid inputs."""
-        assert claimed_score("NYT", "Easy") == 2
-        assert claimed_score("NYT", "Hard") == 6
-        assert claimed_score("Times Sudoku", "Super Fiendish") == 10
+    def test_claimed_range_valid(self):
+        """Test claimed_range with valid inputs."""
+        assert claimed_range("NYT", "Easy") == (1, 3, 2)
+        assert claimed_range("NYT", "Hard") == (7, 10, 8)
+        assert claimed_range("Times Sudoku", "Super Fiendish") == (10, 10, 10)
 
-    def test_claimed_score_invalid(self):
-        """Test claimed_score with invalid inputs returns None."""
-        assert claimed_score("Unknown", "Easy") is None
-        assert claimed_score("NYT", "SuperHard") is None
+    def test_claimed_range_invalid(self):
+        """Test claimed_range with invalid inputs returns None."""
+        assert claimed_range("Unknown", "Easy") is None
+        assert claimed_range("NYT", "SuperHard") is None
+
+
+class TestRangeHelpers:
+    """Test range-based helper functions."""
+
+    def test_is_in_range_true(self):
+        """Test is_in_range returns True when score is within range."""
+        assert is_in_range(2, 1, 3) is True
+        assert is_in_range(1, 1, 3) is True  # boundary
+        assert is_in_range(3, 1, 3) is True  # boundary
+        assert is_in_range(5, 4, 6) is True
+
+    def test_is_in_range_false(self):
+        """Test is_in_range returns False when score is outside range."""
+        assert is_in_range(0, 1, 3) is False
+        assert is_in_range(4, 1, 3) is False
+        assert is_in_range(7, 4, 6) is False
+
+    def test_calculate_mismatch_in_range(self):
+        """Test calculate_mismatch returns 0 when in range."""
+        assert calculate_mismatch(2, 1, 3, 2) == 0.0
+        assert calculate_mismatch(1, 1, 3, 2) == 0.0
+        assert calculate_mismatch(3, 1, 3, 2) == 0.0
+        assert calculate_mismatch(5, 4, 6, 5) == 0.0
+
+    def test_calculate_mismatch_out_of_range(self):
+        """Test calculate_mismatch returns difference from midpoint when outside."""
+        assert calculate_mismatch(5, 1, 3, 2) == 3.0  # 5 - 2 = 3
+        assert calculate_mismatch(1, 4, 6, 5) == -4.0  # 1 - 5 = -4
+        assert calculate_mismatch(7, 1, 3, 2) == 5.0  # 7 - 2 = 5
+        assert calculate_mismatch(8, 4, 6, 5) == 3.0  # 8 - 5 = 3
 
 
 class TestVerdict:
-    """Test verdict function."""
+    """Test verdict function with float mismatch values."""
 
     def test_verdict_accurate(self):
         """Test verdict for zero mismatch."""
         assert verdict(0) == "Accurate"
+        assert verdict(0.0) == "Accurate"
 
     def test_verdict_underrated(self):
         """Test verdict for positive mismatch (underrated)."""
-        assert verdict(1) == "Slightly Underrated"
-        assert verdict(2) == "Moderately Underrated"
-        assert verdict(3) == "Significantly Underrated"
-        assert verdict(5) == "Significantly Underrated"
+        assert verdict(1.0) == "Slightly Underrated"
+        assert verdict(1.5) == "Slightly Underrated"
+        assert verdict(2.0) == "Moderately Underrated"
+        assert verdict(2.9) == "Moderately Underrated"
+        assert verdict(3.0) == "Significantly Underrated"
+        assert verdict(5.5) == "Significantly Underrated"
 
     def test_verdict_overrated(self):
         """Test verdict for negative mismatch (overrated)."""
-        assert verdict(-1) == "Slightly Overrated"
-        assert verdict(-2) == "Moderately Overrated"
-        assert verdict(-3) == "Significantly Overrated"
-        assert verdict(-5) == "Significantly Overrated"
+        assert verdict(-1.0) == "Slightly Overrated"
+        assert verdict(-1.5) == "Slightly Overrated"
+        assert verdict(-2.0) == "Moderately Overrated"
+        assert verdict(-2.9) == "Moderately Overrated"
+        assert verdict(-3.0) == "Significantly Overrated"
+        assert verdict(-5.5) == "Significantly Overrated"
+
+    def test_verdict_edge_cases(self):
+        """Test verdict for edge cases between thresholds."""
+        # Values between -1 and 0, or between 0 and 1 should be Accurate
+        assert verdict(0.5) == "Accurate"
+        assert verdict(-0.5) == "Accurate"
+        assert verdict(0.9) == "Accurate"
+        assert verdict(-0.9) == "Accurate"
 
 
 class TestTechniqueScale:
@@ -250,7 +304,7 @@ class TestMulberry32:
 
 
 class TestGenerate:
-    """Test generate function."""
+    """Test generate function with range-based validation."""
 
     def test_generate_count(self):
         """Test generate produces correct number of records."""
@@ -266,19 +320,28 @@ class TestGenerate:
             assert records1[i]["id"] == records2[i]["id"]
             assert records1[i]["publisher"] == records2[i]["publisher"]
             assert records1[i]["measuredScore"] == records2[i]["measuredScore"]
+            assert records1[i]["mismatch"] == records2[i]["mismatch"]
+            assert records1[i]["inRange"] == records2[i]["inRange"]
 
     def test_generate_record_structure(self):
-        """Test generated records have required fields."""
+        """Test generated records have required fields for range-based validation."""
         records = generate(5)
         for record in records:
+            # Base fields
             assert "id" in record
             assert "publisher" in record
             assert "publisherShort" in record
             assert "claimed" in record
-            assert "claimedScore" in record
+            # Range-based fields (new)
+            assert "claimedRangeLow" in record
+            assert "claimedRangeHigh" in record
+            assert "claimedMidpoint" in record
+            assert "inRange" in record
+            # Measured and calculated fields
             assert "measuredScore" in record
             assert "mismatch" in record
             assert "verdict" in record
+            # Additional fields
             assert "tech" in record
             assert "clues" in record
             assert "grid" in record
@@ -292,12 +355,48 @@ class TestGenerate:
             expected_id = f"SDK-{1042 + i:04d}"
             assert record["id"] == expected_id
 
+    def test_generate_range_fields_valid(self):
+        """Test range fields are valid tuples from CLAIMED_RANGES."""
+        records = generate(50)
+        for record in records:
+            publisher = record["publisher"]
+            claimed = record["claimed"]
+            expected_range = claimed_range(publisher, claimed)
+            assert expected_range is not None
+            assert record["claimedRangeLow"] == expected_range[0]
+            assert record["claimedRangeHigh"] == expected_range[1]
+            assert record["claimedMidpoint"] == expected_range[2]
+
     def test_generate_mismatch_calculation(self):
-        """Test mismatch is calculated correctly."""
+        """Test mismatch is calculated using range-based validation."""
         records = generate(100)
         for record in records:
-            expected_mismatch = record["measuredScore"] - record["claimedScore"]
+            range_low = record["claimedRangeLow"]
+            range_high = record["claimedRangeHigh"]
+            midpoint = record["claimedMidpoint"]
+            measured = record["measuredScore"]
+            expected_mismatch = calculate_mismatch(measured, range_low, range_high, midpoint)
             assert record["mismatch"] == expected_mismatch
+
+    def test_generate_in_range_correct(self):
+        """Test inRange field correctly reflects whether measured is in claimed range."""
+        records = generate(100)
+        for record in records:
+            range_low = record["claimedRangeLow"]
+            range_high = record["claimedRangeHigh"]
+            measured = record["measuredScore"]
+            expected_in_range = is_in_range(measured, range_low, range_high)
+            assert record["inRange"] == expected_in_range
+
+    def test_generate_in_range_implies_zero_mismatch(self):
+        """Test that inRange=True always means mismatch=0."""
+        records = generate(100)
+        for record in records:
+            if record["inRange"]:
+                assert record["mismatch"] == 0.0
+            else:
+                # When out of range, mismatch should be non-zero
+                assert record["mismatch"] != 0.0
 
     def test_generate_verdict_matches_mismatch(self):
         """Test verdict matches mismatch value."""
@@ -308,18 +407,34 @@ class TestGenerate:
 
 
 class TestRepo:
-    """Test pre-generated REPO constant."""
+    """Test pre-generated REPO constant with range-based fields."""
 
     def test_repo_count(self):
         """Test REPO has 36 records."""
         assert len(REPO) == 36
 
     def test_repo_structure(self):
-        """Test REPO records have required fields."""
+        """Test REPO records have required range-based fields."""
         for record in REPO:
+            # Core fields
             assert "id" in record
             assert "publisher" in record
             assert "measuredScore" in record
+            # Range-based fields
+            assert "claimedRangeLow" in record
+            assert "claimedRangeHigh" in record
+            assert "claimedMidpoint" in record
+            assert "inRange" in record
+            assert "mismatch" in record
+            assert "verdict" in record
+
+    def test_repo_in_range_consistency(self):
+        """Test REPO inRange field is consistent with mismatch."""
+        for record in REPO:
+            if record["inRange"]:
+                assert record["mismatch"] == 0.0
+            else:
+                assert record["mismatch"] != 0.0
 
 
 class TestPearson:

@@ -18,8 +18,8 @@ from solver import (
 )
 from analyzer import (
     SUBMIT_PUBLISHERS, SUBMIT_PUBLISHER_SHORT, DIFF_BY_PUBLISHER,
-    CLAIMED_SCORE, TECHNIQUE_SCALE,
-    diffs_for, claimed_score, verdict, tech_for_score,
+    CLAIMED_RANGES, TECHNIQUE_SCALE,
+    diffs_for, claimed_range, is_in_range, calculate_mismatch, verdict, tech_for_score,
     analytics
 )
 from database import get_db, init_db, User, Puzzle
@@ -80,12 +80,16 @@ class CountSolutionsInput(BaseModel):
 
 
 class SubmitPuzzleInput(BaseModel):
-    """Input model for submitting a puzzle to repository."""
+    """Input model for submitting a puzzle to repository.
+
+    Range fields (claimedRangeLow, claimedRangeHigh, claimedMidpoint, inRange)
+    are computed on-the-fly from CLAIMED_RANGES when reading from the database.
+    """
     publisher: str
     claimed: str
     grid: str
     measuredScore: int
-    mismatch: int
+    mismatch: float  # Float for range-based mismatch
     verdict: str
     tech: str
     clues: int
@@ -95,15 +99,15 @@ class SubmitPuzzleInput(BaseModel):
     difficulty: Optional[str] = None
 
 
-class ClaimedScoreInput(BaseModel):
-    """Input model for claimed score lookup."""
+class ClaimedRangeInput(BaseModel):
+    """Input model for claimed range lookup."""
     publisher: str
     label: str
 
 
 class VerdictInput(BaseModel):
     """Input model for verdict calculation."""
-    mismatch: int
+    mismatch: float  # Changed from int to float
 
 
 # ---- API Endpoints ----
@@ -125,7 +129,7 @@ async def root():
             "POST /api/submit-puzzle?user_id=",
             "GET /api/analytics?user_id=",
             "GET /api/constants",
-            "POST /api/claimed-score",
+            "POST /api/claimed-range",
             "POST /api/verdict",
         ]
     }
@@ -271,7 +275,11 @@ async def api_submit_puzzle(
     max_id = db.query(func.max(Puzzle.id)).scalar() or 0
     puzzle_id = f"SDK-{1042 + max_id + 1:04d}"
 
-    # Create puzzle record
+    # Get the midpoint from the range for claimed_score (DB compatibility)
+    rng = claimed_range(input_data.publisher, input_data.claimed)
+    midpoint = int(rng[2]) if rng else 5  # Default to 5 if range not found
+
+    # Create puzzle record (range fields computed on-the-fly when reading)
     puzzle = Puzzle(
         puzzle_id=puzzle_id,
         user_id=user_id,
@@ -280,9 +288,9 @@ async def api_submit_puzzle(
         publisher=input_data.publisher,
         publisher_short=SUBMIT_PUBLISHER_SHORT.get(input_data.publisher, input_data.publisher),
         claimed_difficulty=input_data.claimed,
-        claimed_score=claimed_score(input_data.publisher, input_data.claimed) or 0,
+        claimed_score=midpoint,  # Store midpoint as claimed_score for DB compatibility
         measured_score=input_data.measuredScore,
-        mismatch=input_data.mismatch,
+        mismatch=int(round(input_data.mismatch)),  # Store as int in DB
         verdict=input_data.verdict,
         hardest_technique=input_data.tech,
         composite_score=input_data.composite,
@@ -372,21 +380,27 @@ async def api_get_constants():
         "SUBMIT_PUBLISHERS": SUBMIT_PUBLISHERS,
         "SUBMIT_PUBLISHER_SHORT": SUBMIT_PUBLISHER_SHORT,
         "DIFF_BY_PUBLISHER": DIFF_BY_PUBLISHER,
-        "CLAIMED_SCORE": CLAIMED_SCORE,
+        "CLAIMED_RANGES": CLAIMED_RANGES,
         "TECHNIQUE_SCALE": TECHNIQUE_SCALE,
         "TECH": tech_dict,
     }
 
 
-@app.post("/api/claimed-score")
-async def api_claimed_score(input_data: ClaimedScoreInput):
+@app.post("/api/claimed-range")
+async def api_claimed_range(input_data: ClaimedRangeInput):
     """
-    Look up the claimed score for a publisher's difficulty label.
+    Look up the claimed range for a publisher's difficulty label.
 
-    Replaces SudokuData.claimedScore().
+    Returns (low, high, midpoint) tuple for range-based validation.
     """
-    score = claimed_score(input_data.publisher, input_data.label)
-    return {"score": score}
+    range_data = claimed_range(input_data.publisher, input_data.label)
+    if range_data:
+        return {
+            "low": range_data[0],
+            "high": range_data[1],
+            "midpoint": range_data[2]
+        }
+    return {"low": None, "high": None, "midpoint": None}
 
 
 @app.post("/api/verdict")
